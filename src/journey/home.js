@@ -17,4 +17,4 @@ start.addEventListener('click', () => state ? dialog.showModal() : launch());
 document.getElementById('cancel-new').addEventListener('click', () => dialog.close());
 document.getElementById('confirm-new').addEventListener('click', launch);
 
-try { const survival=readSave(localStorage); if(survival.exists){ document.querySelector("#survival-start strong").textContent=complete(survival.state)?"物资检查已完成 · 返回营地 ↗":"继续生存准备 ↗"; } } catch {}
+try { const survival=readSave(localStorage); if(survival.exists){ document.querySelector("#survival-start strong").textContent=survival.state.power.online?"营地电源已投运 · 返回营地 ↗":survival.state.power.started?"继续选址接电 ↗":complete(survival.state)?"物资已确认 · 开始选址接电 ↗":"继续生存准备 ↗"; } } catch {}
