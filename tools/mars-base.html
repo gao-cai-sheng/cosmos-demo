@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 基地外观 · 远远看见那点灯</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden;
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  canvas#gl{ position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  canvas#gl:active{ cursor:grabbing; }
+
+  .panel{ position:fixed; top:16px; left:16px; width:262px; z-index:10;
+          background:rgba(6,10,14,.80); border:1px solid var(--line);
+          backdrop-filter:blur(8px); padding:14px; max-height:calc(100vh - 32px); overflow:auto; }
+  .panel h1{ margin:0 0 2px; font-size:13px; letter-spacing:.14em; color:var(--cy); font-weight:600; }
+  .panel .sub{ color:var(--dim); font-size:10px; letter-spacing:.1em; margin-bottom:12px; }
+  .lab{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin:13px 0 5px; }
+  .lab b{ float:right; color:var(--cy); font-weight:500; }
+  input[type=range]{ width:100%; accent-color:var(--cy); }
+  .seg{ display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  button{ font:inherit; font-size:10px; letter-spacing:.1em; padding:6px 4px; cursor:pointer;
+          background:rgba(255,255,255,.04); color:var(--ink); border:1px solid var(--line); transition:.12s; }
+  button:hover{ background:rgba(111,227,245,.10); }
+  button.on{ background:var(--cy); color:#05060a; border-color:var(--cy); }
+  .shot{ display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
+  .shot button{ font-size:9.5px; padding:4px 6px; }
+
+  .tele{ position:fixed; top:16px; right:16px; width:236px; z-index:10;
+         background:rgba(6,10,14,.80); border:1px solid var(--line);
+         backdrop-filter:blur(8px); padding:12px 14px; }
+  .row{ display:flex; justify-content:space-between; gap:8px; padding:2.5px 0; }
+  .row span{ color:var(--dim); } .row b{ font-weight:500; }
+  .row.bad b{ color:var(--bad); } .row.warn b{ color:var(--warn); } .row.good b{ color:var(--good); }
+  .hdr{ color:var(--cy); font-size:10px; letter-spacing:.14em; margin:11px 0 4px;
+        border-top:1px solid var(--line); padding-top:8px; }
+  .hdr:first-child{ border-top:0; margin-top:0; padding-top:0; }
+  .swatch{ display:flex; align-items:center; gap:7px; padding:2px 0; font-size:10.5px; }
+  .swatch i{ width:11px; height:11px; display:inline-block; border:1px solid rgba(255,255,255,.18); }
+  .note{ margin-top:9px; padding:8px 9px; font-size:10px; line-height:1.6;
+         border-left:2px solid var(--warn); background:rgba(245,183,111,.06); color:#e6d3b8; }
+
+  .hint{ position:fixed; bottom:14px; left:16px; color:var(--dim); font-size:10px; z-index:10; }
+  #err{ position:fixed; right:16px; bottom:16px; max-width:520px; z-index:99; background:#2a0d0d;
+        border:1px solid #ff5f56; color:#ffd9d6; padding:12px 14px; font-size:11px;
+        line-height:1.6; white-space:pre-wrap; display:none; }
+  #err b{ color:#ff5f56; display:block; margin-bottom:6px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="panel">
+  <h1>基地外观</h1>
+  <div class="sub">远远看见那点灯 · 视觉方向验证</div>
+
+  <div class="lab">与基地距离 <b id="dstLab">—</b></div>
+  <input type="range" id="dst" min="60" max="4000" step="10" value="1400" />
+
+  <div class="lab">太阳高度角 <b id="sunLab">—</b></div>
+  <input type="range" id="sun" min="-14" max="34" step="1" value="-6" />
+
+  <div class="lab">尘埃浓度 <b id="hazLab">—</b></div>
+  <input type="range" id="haz" min="0" max="200" step="1" value="82" />
+
+  <div class="lab">相机高度 <b id="eyeLab">—</b></div>
+  <input type="range" id="eye" min="1" max="40" step="0.5" value="2.2" />
+
+  <div class="lab">镜头 <b id="fovLab">—</b></div>
+  <input type="range" id="fov" min="6" max="70" step="1" value="16" />
+
+  <div class="lab">基地灯光</div>
+  <div class="seg">
+    <button id="lOn" class="on">通电</button>
+    <button id="lOff">熄灯</button>
+  </div>
+
+  <div class="lab">明信片时刻</div>
+  <div class="shot" id="shots"></div>
+</div>
+
+<div class="tele">
+  <div class="hdr">巡视器状态</div>
+  <div id="navRows"></div>
+  <div class="hdr">材质词汇表</div>
+  <div id="matRows"></div>
+  <div class="note" id="greenNote">
+    绿色是全场最贵的颜色 —— 整个调色板里只有温室那一扇窗是绿的。
+  </div>
+</div>
+
+<div class="hint">拖动 = 环视基地 · 滚轮 = 距离</div>
+<div id="err"></div>
+
+<script>
+/* ============================================================
+   COSMOS 基地外观原型
+   零依赖 WebGL2。单个全屏片元着色器：
+     地形 = 高度场步进
+     基地 = SDF 组合
+     两者取近者，共用一次步进
+   ------------------------------------------------------------
+   视觉规矩（从项目美术方向来，不是随手定的）：
+     1. 一切皆工程 —— 没有无功能的装饰，全是承力件、管线、标记
+     2. 命名材质表 —— 一小撮材质全场复用，统一感是白送的
+     3. 绿色是货币 —— 全场只有温室一扇窗是绿的
+     4. 空旷即不安 —— 这里不是等人来的公园，是失联后的沉默
+   ============================================================ */
+const errBox = document.getElementById('err');
+function fail(t,d){ errBox.style.display='block'; errBox.innerHTML='<b>'+t+'</b>'+(d||''); }
+addEventListener('error', e => fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')));
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias:false, powerPreference:'high-performance' });
+if(!gl){ fail('WebGL2 不可用','换 Chrome / Edge，或打开硬件加速。'); throw new Error('no webgl2'); }
+
+const VS = `#version 300 es
+void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+             gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+
+const FS = `#version 300 es
+precision highp float;
+out vec4 outC;
+
+uniform vec2  uRes;
+uniform vec3  uCam, uFwd, uRight, uUp;
+uniform vec3  uSun;
+uniform float uSunEl;      // 度
+uniform float uHaze;       // 0..2
+uniform float uLights;     // 0/1 基地通电
+uniform float uTime;
+uniform float uFov;        // tan(半垂直视角)
+
+/* ============================================================
+   命名材质表 —— 全场只有这几种，复用带来统一感
+   ============================================================ */
+const int M_REGOLITH  = 0;   // 风化层：锈赭色，粗糙
+const int M_PAINTED   = 1;   // 刷漆钢：脏白
+const int M_ALLOY     = 2;   // 裸铝：灰，微金属
+const int M_ORANGE    = 3;   // 安全橙：扶手、危险标记
+const int M_DECK      = 4;   // 花纹钢板：深灰
+const int M_WIN_WARM  = 5;   // 暖白窗：居住舱
+const int M_WIN_GROW  = 6;   // 植物灯窗：全场唯一的绿
+const int M_BEACON    = 7;   // 航障灯：红
+const int M_SOLAR     = 8;   // 太阳能板：深蓝黑
+
+vec3 matAlbedo(int m){
+  if(m==M_REGOLITH) return vec3(0.46,0.27,0.17);
+  if(m==M_PAINTED)  return vec3(0.78,0.77,0.74);
+  if(m==M_ALLOY)    return vec3(0.55,0.56,0.58);
+  if(m==M_ORANGE)   return vec3(0.85,0.33,0.08);
+  if(m==M_DECK)     return vec3(0.24,0.24,0.25);
+  if(m==M_SOLAR)    return vec3(0.06,0.07,0.11);
+  return vec3(0.5);
+}
+vec3 matEmissive(int m){
+  if(m==M_WIN_WARM) return vec3(1.00,0.78,0.48)*3.4;
+  if(m==M_WIN_GROW) return vec3(0.28,1.00,0.42)*3.0;   // 唯一的绿
+  if(m==M_BEACON)   return vec3(1.00,0.16,0.10)*4.2;
+  return vec3(0.0);
+}
+
+/* ---------- 噪声 ---------- */
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453123); }
+float n2(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y);
+}
+float fbm(vec2 p, int oct){
+  float s=0.0,a=0.5,f=1.0;
+  for(int i=0;i<7;i++){ if(i>=oct) break; s+=n2(p*f)*a; f*=2.07; a*=0.5; }
+  return s;
+}
+
+/* ---------- 碎石场 ----------
+   平原上散着石头，是"这地方是真的"最便宜的一笔。
+   每个格子最多一块石头，且位置抖动被限制在格内 ——
+   所以只查一次哈希就够，不用查 3×3 邻域，快一个数量级。 */
+/* 单层：格内至多一块，抖动幅度被限制到不会越格 —— 这是单格查询成立的前提。
+   约束： (jitter/2)*√2 + radMax < cell/2 */
+float rockLayer(vec2 p, float cell, float jit, float rMin, float rSpan,
+                float occupancy, float seed, float rot, inout float rid){
+  /* 每层用不同的网格朝向。否则所有石头排在同一套正交格线上，
+     远看会显出规律 —— 这是程序化地面最容易露馅的地方。 */
+  float cs = cos(rot), sn = sin(rot);
+  vec2 pr = mat2(cs,-sn,sn,cs) * p;
+
+  vec2 c0 = floor(pr/cell);
+  float r1 = h21(c0 + seed), r2 = h21(c0 + seed + vec2(37.1,11.3)), r3 = h21(c0 + seed + vec2(91.7,5.9));
+  if(r3 < occupancy) return 0.0;
+  vec2 c = (c0+0.5)*cell + (vec2(r1,r2)-0.5)*jit;
+  float radBase = rMin + r3*r3*rSpan;             // 小石头多、大石头少
+
+  vec2 v = pr - c;
+  float d = length(v);
+  if(d >= radBase) return 0.0;
+
+  /* 轮廓不是正圆：按方位角扰动半径，做出棱角 */
+  float ang = atan(v.y, v.x);
+  float lobe = 0.80 + 0.34*h21(floor(vec2(ang*1.9, 0.0)) + c0*3.1 + seed)
+                    + 0.16*h21(floor(vec2(ang*4.3, 1.0)) + c0*7.7 + seed);
+  float rad = radBase * clamp(lobe, 0.55, 1.0);
+  if(d >= rad) return 0.0;
+
+  rid = r1;
+  float dome = sqrt(max(0.0, rad*rad - d*d));
+  /* 高矮差别拉大：有的埋得只剩个顶，有的立着 */
+  float squash = 0.26 + 0.78*r2*r2;
+  return dome * squash * smoothstep(1.0, 0.84, d/rad);
+}
+
+/* 两层：大石块 + 小碎石。真实地面的关键是尺寸有分布，不是一种大小。 */
+float rocks(vec2 p, out float rid){
+  rid = 0.5;
+  float h = rockLayer(p, 9.0, 3.4, 0.28, 1.32, 0.42,  0.0, 0.0,  rid);
+  h     += rockLayer(p, 2.6, 1.0, 0.06, 0.22, 0.55, 53.7, 0.61, rid);
+  return h;
+}
+
+/* ---------- 地形：埃律西昂式的平坦风化层平原 ---------- */
+float terrainH(vec2 p){
+  float h = (fbm(p*0.0026, 4)-0.5)*22.0;          // 缓丘
+  h += (fbm(p*0.021, 4)-0.5)*2.2;                 // 沙脊
+  h += (fbm(p*0.14, 3)-0.5)*0.30;                 // 砂纹
+  float rid;
+  h += rocks(p, rid);                             // 碎石
+  return h;
+}
+
+/* ============================================================
+   基地 SDF
+   一切皆工程：卧式舱体 + 支腿 + 连接管 + 气闸 + 天线塔
+   + 太阳能阵列 + 着陆坪。没有装饰件。
+   ============================================================ */
+float sdBox(vec3 p, vec3 b){ vec3 q=abs(p)-b; return length(max(q,0.0))+min(max(q.x,max(q.y,q.z)),0.0); }
+float sdCapsuleX(vec3 p, float hx, float r){ p.x -= clamp(p.x,-hx,hx); return length(p)-r; }
+float sdCylY(vec3 p, float h, float r){
+  vec2 d = vec2(length(p.xz)-r, abs(p.y)-h);
+  return min(max(d.x,d.y),0.0)+length(max(d,0.0));
+}
+
+/* 取近者并记下材质 */
+vec2 nearer(vec2 res, float d, int m){
+  return (d < res.x) ? vec2(d, float(m)) : res;
+}
+
+/* 返回 (距离, 材质) */
+vec2 sdBase(vec3 p){
+  vec2 res = vec2(1e9, 0.0);
+
+  /* --- 三节卧式居住舱，排成一列，架在支腿上 --- */
+  for(int i=0;i<3;i++){
+    float z = float(i-1)*14.0;
+    vec3 q = p - vec3(0.0, 4.2, z);
+    res = nearer(res, sdCapsuleX(q, 7.0, 3.1), M_PAINTED);
+    /* 舱端环箍 */
+    res = nearer(res, max(sdCapsuleX(q, 7.2, 3.25), abs(abs(q.x)-7.0)-0.22), M_ALLOY);
+    /* 环肋：每 1.5 m 一道，凸出 6 cm。
+       这是"尺度层级"的第二级 —— 光溜溜的圆柱正是塑料感的来源。 */
+    float ribBand = abs(mod(q.x + 0.75, 1.5) - 0.75) - 0.055;
+    res = nearer(res, max(sdCapsuleX(q, 6.9, 3.17), ribBand), M_ALLOY);
+    /* 纵向脊管：舱顶一根走线管 */
+    res = nearer(res, sdCapsuleX(q - vec3(0.0, 3.02, 0.0), 7.0, 0.16), M_ALLOY);
+    /* 支腿：每舱四条 */
+    for(int k=0;k<4;k++){
+      float sx = (k<2 ? -1.0 : 1.0)*4.6;
+      float sz = (mod(float(k),2.0) < 0.5 ? -1.0 : 1.0)*2.2;
+      vec3 L = p - vec3(sx, 2.1, z+sz);
+      res = nearer(res, sdCylY(L, 2.1, 0.30), M_ALLOY);
+    }
+    /* 窗：舱侧一排。中间那节是温室 —— 全场唯一的绿 */
+    for(int w=0;w<4;w++){
+      float wx = -4.5 + float(w)*3.0;
+      vec3 W = p - vec3(wx, 4.9, z);
+      float win = sdBox(vec3(W.x, W.y, abs(W.z)-3.05), vec3(0.85,0.55,0.06));
+      res = nearer(res, win, (i==1) ? M_WIN_GROW : M_WIN_WARM);
+    }
+  }
+
+  /* --- 连接管：把三节串起来 --- */
+  {
+    vec3 q = p - vec3(0.0, 4.2, 0.0);
+    vec2 d2 = vec2(length(vec2(q.x,q.y))-1.35, abs(q.z)-21.0);
+    res = nearer(res, min(max(d2.x,d2.y),0.0)+length(max(d2,0.0)), M_ALLOY);
+  }
+
+  /* --- 气闸：端头一个立柜，带橙色框 --- */
+  {
+    vec3 q = p - vec3(0.0, 3.0, 24.0);
+    res = nearer(res, sdBox(q, vec3(2.2,3.0,2.2)), M_PAINTED);
+    res = nearer(res, sdBox(q - vec3(0.0,0.0,-2.2), vec3(1.05,1.7,0.16)), M_ORANGE);
+  }
+
+  /* --- 天线塔 + 顶端航障灯 --- */
+  {
+    vec3 q = p - vec3(-13.0, 0.0, -6.0);
+    res = nearer(res, sdCylY(q - vec3(0.0,11.0,0.0), 11.0, 0.34), M_ALLOY);
+    /* 三道拉线锚 */
+    for(int k=0;k<3;k++){
+      float a = float(k)*2.0944;
+      vec3 A = q - vec3(cos(a)*5.0, 0.5, sin(a)*5.0);
+      res = nearer(res, sdCylY(A, 0.5, 0.22), M_DECK);
+    }
+    res = nearer(res, length(q - vec3(0.0,22.4,0.0)) - 0.42, M_BEACON);
+  }
+
+  /* --- 太阳能阵列：四排斜板 --- */
+  for(int i=0;i<4;i++){
+    float x = 16.0 + float(i)*7.0;
+    vec3 q = p - vec3(x, 2.4, 4.0);
+    float c = cos(-0.5), s = sin(-0.5);
+    q.yz = mat2(c,-s,s,c) * q.yz;                  // 倾斜迎光
+    res = nearer(res, sdBox(q, vec3(2.6, 0.09, 9.0)), M_SOLAR);
+    res = nearer(res, sdCylY(p - vec3(x, 1.2, 4.0), 1.2, 0.20), M_ALLOY);
+  }
+
+  /* --- 着陆坪：低台 + 四角橙桩 --- */
+  {
+    vec3 q = p - vec3(-4.0, 0.35, -30.0);
+    res = nearer(res, sdCylY(q, 0.35, 11.0), M_DECK);
+    for(int k=0;k<4;k++){
+      float a = float(k)*1.5708 + 0.7854;
+      vec3 A = q - vec3(cos(a)*10.0, 0.8, sin(a)*10.0);
+      res = nearer(res, sdCylY(A, 0.8, 0.16), M_ORANGE);
+    }
+  }
+  return res;
+}
+
+/* ---------- 场景：地形与基地取近者 ---------- */
+vec2 mapScene(vec3 p){
+  /* 0.55 而不是 0.72：加了碎石之后高度场坡度变陡，
+     步长要更保守，否则会从石头边上穿过去。 */
+  float dt = (p.y - terrainH(p.xz)) * 0.55;
+  vec2 b = sdBase(p);
+  return (dt < b.x) ? vec2(dt, float(M_REGOLITH)) : b;
+}
+
+/* ---------- 环境光遮蔽 ----------
+   让每样东西"坐"进地里、缝隙变暗。没有这一项，
+   所有构件都像浮在地面上的贴纸。 */
+float calcAO(vec3 p, vec3 n){
+  float occ = 0.0, sca = 1.0;
+  for(int i=0;i<5;i++){
+    float hh = 0.03 + 0.42*float(i)/4.0;
+    float d = mapScene(p + n*hh).x;
+    occ += (hh - d)*sca;
+    sca *= 0.72;
+  }
+  return clamp(1.0 - 2.4*occ, 0.0, 1.0);
+}
+
+/* 每种材质的高光：粗糙度与强度 */
+void matSpec(int m, out float shin, out float str){
+  if(m==M_ALLOY)      { shin = 46.0;  str = 0.55; }
+  else if(m==M_PAINTED){ shin = 22.0;  str = 0.20; }
+  else if(m==M_DECK)  { shin = 14.0;  str = 0.14; }
+  else if(m==M_SOLAR) { shin = 180.0; str = 1.35; }   // 玻璃盖板，眩光很硬
+  else if(m==M_ORANGE){ shin = 18.0;  str = 0.16; }
+  else                { shin = 8.0;   str = 0.03; }   // 风化层几乎不反光
+}
+
+/* ---------- 天空 ---------- */
+vec3 skyCol(vec3 d){
+  float up = clamp(d.y, 0.0, 1.0);
+  float ct = dot(d, uSun);
+  float day = clamp((uSunEl + 6.0)/16.0, 0.0, 1.0);      // 夜→昼
+
+  /* 白天：黄油糖色；夜里：近黑带一点尘辉 */
+  vec3 zen = mix(vec3(0.020,0.016,0.022), vec3(0.36,0.26,0.20), day);
+  vec3 hor = mix(vec3(0.055,0.035,0.030), vec3(0.72,0.48,0.28), day);
+  vec3 col = mix(hor, zen, pow(up, 0.52));
+
+  /* 火星落日的蓝：尘粒让蓝光紧贴太阳方向 */
+  float dusk = exp(-pow(max(0.0,uSunEl)/9.0, 2.0)) * clamp((uSunEl+10.0)/12.0, 0.0, 1.0);
+  col += vec3(0.20,0.44,0.95) * pow(max(ct,0.0), 26.0) * (1.6*dusk + 0.35*day);
+  col += vec3(0.60,0.36,0.20) * pow(max(ct,0.0), 3.5) * 0.30 * day;
+
+  /* 星空：只在夜里 */
+  float night = 1.0 - day;
+  if(night > 0.01){
+    vec3 g = floor(d*200.0);
+    float r = fract(sin(dot(g, vec3(127.1,311.7,74.7)))*43758.5453);
+    if(r > 0.9962){
+      vec3 c = (g+0.5)/200.0;
+      float s = pow(max(0.0, 1.0 - length(normalize(c)-d)*560.0), 2.0);
+      col += vec3(s) * night * (0.35+fract(r*91.7)*0.65);
+    }
+  }
+  /* 日面 */
+  col = mix(col, vec3(1.0,0.90,0.76)*4.0, smoothstep(0.9994, 0.9998, ct));
+  return col;
+}
+
+/* ---------- 远距灯光辉光 ----------
+   这是"远远看见那点灯"的关键：即使灯本身只有一两个像素，
+   也要在大气里散出可见的光晕，否则两公里外什么都看不到。 */
+vec3 lampGlow(vec3 ro, vec3 rd, float tMax){
+  if(uLights < 0.5) return vec3(0.0);
+  vec3 sum = vec3(0.0);
+  const int NL = 7;
+  vec3 LP[NL]; vec3 LC[NL];
+  LP[0]=vec3(0.0,22.4,-6.0-0.0); LC[0]=vec3(1.00,0.16,0.10)*1.5;   // 塔顶航障（下面会平移）
+  LP[1]=vec3(0.0, 5.0,-14.0);    LC[1]=vec3(1.00,0.78,0.48);
+  LP[2]=vec3(0.0, 5.0,  0.0);    LC[2]=vec3(0.30,1.00,0.45)*1.25;  // 温室：绿
+  LP[3]=vec3(0.0, 5.0, 14.0);    LC[3]=vec3(1.00,0.78,0.48);
+  LP[4]=vec3(0.0, 3.4, 24.0);    LC[4]=vec3(1.00,0.70,0.40)*0.8;   // 气闸
+  LP[5]=vec3(-4.0,1.4,-30.0);    LC[5]=vec3(1.00,0.55,0.20)*0.7;   // 着陆坪
+  LP[6]=vec3(24.0,2.8, 4.0);     LC[6]=vec3(0.70,0.80,1.00)*0.35;  // 阵列检修灯
+  LP[0] = vec3(-13.0,22.4,-6.0);
+
+  for(int i=0;i<NL;i++){
+    vec3 v = LP[i] - ro;
+    float t = dot(v, rd);
+    if(t < 0.0) continue;
+    if(t > tMax + 2.0) continue;                       // 被地形/结构挡住
+    float d = length(v - rd*t);                        // 到光源的垂距
+    float dist = length(v);
+    /* 灯要读成"锐利的一点"，不是糊开的一团 ——
+       所以核心很紧，光晕半径小且尾巴用四次方压住，
+       否则 gamma 会把那条长尾提亮成一大片暖雾。 */
+    float rc = 0.45 + dist*0.0045;
+    float rh = 2.2  + dist*0.020;
+    float core = 1.0/(1.0 + pow(d/rc, 2.0));
+    float q = d/rh;
+    float halo = 1.0/(1.0 + q*q*q*q) * (0.07 + uHaze*0.10);
+    float atten = 1.0/(1.0 + dist*dist*0.0000075);
+    /* 航障灯慢闪 */
+    float blink = (i==0) ? (0.35 + 0.65*step(0.5, fract(uTime*0.42))) : 1.0;
+    sum += LC[i]*(core*1.5 + halo)*atten*blink;
+  }
+  return sum;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy*2.0 - uRes)/uRes.y;
+  vec3 rd = normalize(uFwd + uRight*uv.x*uFov + uUp*uv.y*uFov);
+  vec3 ro = uCam;
+
+  /* ---- 步进 ---- */
+  float t = 0.4, tMax = 9000.0;
+  int mat = -1;
+  for(int i=0;i<300;i++){
+    vec3 p = ro + rd*t;
+    vec2 m = mapScene(p);
+    if(m.x < 0.0014*t){ mat = int(m.y + 0.5); break; }
+    t += max(m.x*0.85, 0.02 + t*0.0016);
+    if(t > tMax) break;
+  }
+
+  float day = clamp((uSunEl + 6.0)/16.0, 0.0, 1.0);
+  vec3 col;
+
+  if(mat < 0){
+    col = skyCol(rd);
+    t = tMax;
+  } else {
+    vec3 p = ro + rd*t;
+    /* 法线 */
+    vec2 e = vec2(0.0018*max(1.0,t*0.35), 0.0);
+    vec3 n = normalize(vec3(
+      mapScene(p+e.xyy).x - mapScene(p-e.xyy).x,
+      mapScene(p+e.yxy).x - mapScene(p-e.yxy).x,
+      mapScene(p+e.yyx).x - mapScene(p-e.yyx).x));
+
+    vec3 alb = matAlbedo(mat);
+    if(mat == M_REGOLITH){
+      /* 风化层：细碎斑驳 + 缓坡处更亮（尘积） */
+      alb *= 0.86 + 0.28*fbm(p.xz*0.7, 3);
+      alb = mix(alb*0.72, alb, clamp(n.y,0.0,1.0));
+      /* 石头比周围的浮土深、灰，而且每块颜色略有不同 */
+      float rid; float rh = rocks(p.xz, rid);
+      if(rh > 0.02){
+        vec3 rock = vec3(0.30,0.22,0.18)*(0.72 + 0.55*rid);
+        alb = mix(alb, rock, clamp(rh*2.2, 0.0, 0.88));
+      }
+    } else {
+      /* 人造物：顶面积尘。火星上任何朝天的面都会积一层浮土，
+         "干净的新设备"是最假的一件事。 */
+      float dust = clamp(n.y, 0.0, 1.0);
+      dust *= 0.55 + 0.45*fbm(p.xz*1.7 + p.y*0.6, 3);
+      alb = mix(alb, vec3(0.52,0.33,0.21), dust*0.42);
+      /* 板缝：每 0.9 m 一道暗线，给平板一点尺度参照 */
+      vec3 g = abs(fract(p*1.111) - 0.5);
+      float seam = smoothstep(0.47, 0.5, max(g.x, max(g.y, g.z)));
+      alb *= 1.0 - seam*0.28;
+    }
+
+    /* 阴影 */
+    float sh = 1.0;
+    { float st = 0.06, k = 1.0;
+      for(int i=0;i<40;i++){
+        float h = mapScene(p + uSun*st).x;
+        if(h < 0.0008){ k = 0.0; break; }
+        k = min(k, 9.0*h/st);
+        st += clamp(h, 0.10, 3.0);
+        if(st > 260.0) break;
+      }
+      sh = clamp(k, 0.0, 1.0);
+    }
+
+    float ndl = max(dot(n, uSun), 0.0);
+    vec3 sunCol = mix(vec3(1.0,0.55,0.30), vec3(1.0,0.88,0.74), clamp(uSunEl/22.0,0.0,1.0));
+    vec3 skyAmb = mix(vec3(0.03,0.025,0.03), vec3(0.30,0.22,0.18), day);
+    float ao = calcAO(p, n);
+
+    col = alb * (sunCol*ndl*sh*2.1*day + skyAmb*(0.45+0.55*clamp(n.y,0.0,1.0))*ao);
+
+    /* 镜面高光：金属读成金属、玻璃读成玻璃，全靠这一项 */
+    float shin, str; matSpec(mat, shin, str);
+    if(str > 0.001 && day > 0.001){
+      vec3 H = normalize(uSun - rd);
+      float spe = pow(max(dot(n,H),0.0), shin);
+      /* 掠射角反射更强（菲涅尔） */
+      float fres = pow(1.0 - max(dot(n,-rd),0.0), 4.0);
+      col += sunCol * spe * str * (0.35 + fres*1.9) * sh * day * ao;
+    }
+    col += matEmissive(mat) * uLights;
+
+    /* 基地在夜里给周围地面一点落地光 */
+    if(mat == M_REGOLITH && uLights > 0.5){
+      float dBase = length(p.xz);
+      col += vec3(1.0,0.72,0.42)*0.55/(1.0 + dBase*dBase*0.010)*(1.0-day);
+    }
+  }
+
+  /* ---- 尘埃雾：距离感全靠它 ---- */
+  {
+    vec3 fogC = mix(vec3(0.045,0.030,0.028), vec3(0.62,0.42,0.27), day);
+    float fd = 1.0 - exp(-t*0.00042*(0.35 + uHaze));
+    /* 逆光时雾更亮 */
+    fogC += vec3(0.55,0.32,0.16)*pow(max(dot(rd,uSun),0.0), 6.0)*0.55*day;
+    col = mix(col, fogC, clamp(fd, 0.0, 1.0));
+  }
+
+  /* ---- 远距灯光辉光（加在雾之后，所以能穿雾） ---- */
+  col += lampGlow(ro, rd, t);
+
+  /* ---- 曝光与色调 ----
+     夜里只轻微提曝光。提太多就变成"到处都看得见"，
+     而这张画面要的恰恰是"什么都看不见，只有那几点灯"。 */
+  float ev = mix(1.55, 1.0, day);
+  col *= ev;
+  col = (col*(2.51*col+0.03))/(col*(2.43*col+0.59)+0.14);
+  col = pow(clamp(col,0.0,1.0), vec3(1.0/2.2));
+  outC = vec4(col, 1.0);
+}`;
+
+/* ============================================================ */
+function sh(ty, src){
+  const s = gl.createShader(ty); gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ const l=gl.getShaderInfoLog(s); fail('着色器编译失败', l); throw new Error(l); }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){ const l=gl.getProgramInfoLog(prog); fail('着色器链接失败', l); throw new Error(l); }
+gl.useProgram(prog);
+gl.bindVertexArray(gl.createVertexArray());
+
+const U = {};
+for(const n of ['uRes','uCam','uFwd','uRight','uUp','uSun','uSunEl','uHaze','uLights','uTime','uFov'])
+  U[n] = gl.getUniformLocation(prog, n);
+
+/* ---------- 状态 ---------- */
+const S = { dist:1400, sunEl:-6, haze:0.82, eye:2.2, lights:1, az:0.0, pitch:-0.02, fov:16 };
+
+const SHOTS = [
+  /*  名称        距离  太阳  尘埃  机位  灯  焦距(半角°) */
+  ['归途',       1400, -6,  0.82, 2.2, 1, 14],
+  ['最后一公里',  620, -9,  1.05, 2.2, 1, 20],
+  ['进场',        120, -4,  0.70, 2.4, 1, 34],
+  ['白昼作业',    260, 21,  0.55, 2.6, 0, 30],
+  ['黄昏',        900,  4,  1.25, 2.2, 1, 18],
+  ['熄灯',       1400, -9,  0.85, 2.2, 0, 14]
+];
+
+/* 地形高度（与着色器同式，用于把相机放到地面上） */
+function h21(x,y){ const s=Math.sin(x*127.1+y*311.7)*43758.5453123; return s-Math.floor(s); }
+function n2(x,y){
+  const xi=Math.floor(x), yi=Math.floor(y);
+  let xf=x-xi, yf=y-yi;
+  const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+  return (h21(xi,yi)*(1-u)+h21(xi+1,yi)*u)*(1-v) + (h21(xi,yi+1)*(1-u)+h21(xi+1,yi+1)*u)*v;
+}
+function fbm(x,y,oct){ let s=0,a=0.5,f=1; for(let i=0;i<oct;i++){ s+=n2(x*f,y*f)*a; f*=2.07; a*=0.5; } return s; }
+function terrainH(x,z){
+  return (fbm(x*0.0026,z*0.0026,4)-0.5)*22
+       + (fbm(x*0.021,z*0.021,4)-0.5)*2.2
+       + (fbm(x*0.14,z*0.14,3)-0.5)*0.30;
+}
+
+const $ = id => document.getElementById(id);
+let t0 = performance.now();
+
+function draw(){
+  const dpr = Math.min(devicePixelRatio||1, 1.5);
+  const w = Math.floor(innerWidth*dpr), h = Math.floor(innerHeight*dpr);
+  if(canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
+  gl.viewport(0,0,w,h);
+
+  /* 相机：站在基地南侧 uDist 米处，朝基地看 */
+  const cx = Math.sin(S.az)*S.dist, cz = -Math.cos(S.az)*S.dist;
+  const cy = terrainH(cx,cz) + S.eye;
+  /* 看向基地中心（略高于地面，看舱体） */
+  let fx = 0-cx, fy = 6-cy, fz = 0-cz;
+  const fl = Math.hypot(fx,fy,fz); fx/=fl; fy/=fl; fz/=fl;
+  /* 叠加俯仰 */
+  const cp = Math.cos(S.pitch), sp2 = Math.sin(S.pitch);
+  const horiz = Math.hypot(fx,fz) || 1e-6;
+  const hx=fx/horiz, hz=fz/horiz;
+  const F=[hx*cp, fy*cp+sp2, hz*cp];
+  const flen=Math.hypot(...F); const Fn=F.map(v=>v/flen);
+  /* 相机基必须满足 右 × 上 = 前（右手系）。
+       右 = 世界上 × 前 = [F.z, 0, -F.x]
+       上 = 前 × 右
+     曾经把上写成 右 × 前（差一个负号），画面上下颠倒 ——
+     表现为天线塔倒挂、航障灯在最下面。 */
+  let R=[Fn[2],0,-Fn[0]]; const rl=Math.hypot(...R)||1e-6; R=R.map(v=>v/rl);
+  const Uv=[Fn[1]*R[2]-Fn[2]*R[1], Fn[2]*R[0]-Fn[0]*R[2], Fn[0]*R[1]-Fn[1]*R[0]];
+
+  const se = S.sunEl*Math.PI/180, sa = 2.35;
+  const sun=[Math.cos(sa)*Math.cos(se), Math.sin(se), Math.sin(sa)*Math.cos(se)];
+  const sl=Math.hypot(...sun);
+
+  gl.uniform2f(U.uRes,w,h);
+  gl.uniform3f(U.uCam,cx,cy,cz);
+  gl.uniform3fv(U.uFwd,Fn);
+  gl.uniform3fv(U.uRight,R);
+  gl.uniform3fv(U.uUp,Uv);
+  gl.uniform3fv(U.uSun,sun.map(v=>v/sl));
+  gl.uniform1f(U.uSunEl,S.sunEl);
+  gl.uniform1f(U.uHaze,S.haze);
+  gl.uniform1f(U.uLights,S.lights);
+  gl.uniform1f(U.uTime,(performance.now()-t0)/1000);
+  gl.uniform1f(U.uFov, Math.tan(S.fov*Math.PI/180));
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  telemetry();
+}
+
+function row(k,v,cls){ return '<div class="row'+(cls?' '+cls:'')+'"><span>'+k+'</span><b>'+v+'</b></div>'; }
+
+function telemetry(){
+  /* 把画面接回玩法：这段距离你的电还够不够开回去 */
+  const perKm = 7.4;                                  // 每公里耗电 %
+  const need = S.dist/1000*perKm;
+  const pack = 22;                                    // 假设剩余电量
+  const ok = pack - need;
+  $('navRows').innerHTML =
+    row('距基地', S.dist >= 1000 ? (S.dist/1000).toFixed(2)+' km' : S.dist.toFixed(0)+' m') +
+    row('剩余电量', pack.toFixed(0)+' %', pack<25?'warn':'good') +
+    row('返程需电', need.toFixed(1)+' %', need>pack?'bad':'warn') +
+    row('余量', (ok>=0?'+':'')+ok.toFixed(1)+' %', ok<0?'bad':ok<5?'warn':'good') +
+    row('太阳高度', S.sunEl+'°', S.sunEl<0?'bad':'good') +
+    row('基地供电', S.lights? '在线':'离线', S.lights?'good':'bad');
+
+  const MATS = [
+    ['风化层','#75452b'], ['刷漆钢','#c7c5bd'], ['裸铝','#8c8f93'],
+    ['安全橙','#d95415'], ['花纹钢板','#3d3d40'], ['太阳能板','#101220'],
+    ['暖白窗','#ffc77a'], ['植物灯窗','#48ff6b'], ['航障灯','#ff2a1a']
+  ];
+  $('matRows').innerHTML = MATS.map(([n,c]) =>
+    '<div class="swatch"><i style="background:'+c+'"></i>'+n+'</div>').join('');
+}
+
+/* ---------- 交互 ---------- */
+let drag=false, px=0, py=0;
+canvas.addEventListener('pointerdown', e=>{ drag=true; px=e.clientX; py=e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', ()=>drag=false);
+canvas.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  S.az -= (e.clientX-px)*0.004;
+  S.pitch = Math.max(-0.5, Math.min(0.45, S.pitch - (e.clientY-py)*0.0022));
+  px=e.clientX; py=e.clientY;
+});
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  S.dist = Math.max(60, Math.min(4000, S.dist*Math.exp(e.deltaY*0.0013)));
+  $('dst').value = S.dist; $('dstLab').textContent = fmtD(S.dist);
+}, {passive:false});
+
+function fmtD(d){ return d>=1000 ? (d/1000).toFixed(2)+' km' : d.toFixed(0)+' m'; }
+/* 半垂直视角 → 35mm 等效焦距（画幅高 24mm） */
+function fmtFov(deg){ return (12/Math.tan(deg*Math.PI/180)).toFixed(0)+' mm 等效'; }
+
+$('dst').oninput = ()=>{ S.dist=+$('dst').value; $('dstLab').textContent=fmtD(S.dist); };
+$('sun').oninput = ()=>{ S.sunEl=+$('sun').value; $('sunLab').textContent=S.sunEl+'°'; };
+$('haz').oninput = ()=>{ S.haze=+$('haz').value/100; $('hazLab').textContent=(S.haze*100).toFixed(0)+'%'; };
+$('eye').oninput = ()=>{ S.eye=+$('eye').value; $('eyeLab').textContent=S.eye.toFixed(1)+' m'; };
+$('fov').oninput = ()=>{ S.fov=+$('fov').value; $('fovLab').textContent=fmtFov(S.fov); };
+$('lOn').onclick  = ()=>{ S.lights=1; $('lOn').classList.add('on'); $('lOff').classList.remove('on'); };
+$('lOff').onclick = ()=>{ S.lights=0; $('lOff').classList.add('on'); $('lOn').classList.remove('on'); };
+
+const shots = $('shots');
+for(const [n,d,s,hz,ey,li,fv] of SHOTS){
+  const b=document.createElement('button');
+  b.textContent=n;
+  b.onclick=()=>{
+    S.dist=d; S.sunEl=s; S.haze=hz; S.eye=ey; S.lights=li; S.fov=fv;
+    $('dst').value=d; $('dstLab').textContent=fmtD(d);
+    $('sun').value=s; $('sunLab').textContent=s+'°';
+    $('haz').value=hz*100; $('hazLab').textContent=(hz*100).toFixed(0)+'%';
+    $('eye').value=ey; $('eyeLab').textContent=ey.toFixed(1)+' m';
+    $('fov').value=fv; $('fovLab').textContent=fmtFov(fv);
+    $('lOn').classList.toggle('on', li===1); $('lOff').classList.toggle('on', li===0);
+  };
+  shots.appendChild(b);
+}
+
+/* ---------- 启动 ---------- */
+$('dstLab').textContent = fmtD(S.dist);
+$('sunLab').textContent = S.sunEl+'°';
+$('hazLab').textContent = (S.haze*100).toFixed(0)+'%';
+$('eyeLab').textContent = S.eye.toFixed(1)+' m';
+$('fovLab').textContent = fmtFov(S.fov);
+function loop(){ draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

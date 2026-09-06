@@ -1,0 +1,1400 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 科普剌忒斯峡谷 · 谷底</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden;
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  canvas#gl{ position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  canvas#gl:active{ cursor:grabbing; }
+
+  .panel{ position:fixed; top:16px; left:16px; width:252px; z-index:10;
+          background:rgba(6,10,14,.80); border:1px solid var(--line);
+          backdrop-filter:blur(8px); padding:14px; max-height:calc(100vh - 32px); overflow:auto; }
+  .panel h1{ margin:0 0 2px; font-size:13px; letter-spacing:.16em; color:var(--cy); font-weight:600; }
+  .panel .sub{ color:var(--dim); font-size:10px; letter-spacing:.1em; margin-bottom:12px; }
+  .lab{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin:13px 0 5px; }
+  .lab b{ float:right; color:var(--cy); font-weight:500; }
+  input[type=range]{ width:100%; accent-color:var(--cy); }
+  button{ font:inherit; font-size:10px; letter-spacing:.1em; padding:6px 4px; cursor:pointer;
+          background:rgba(255,255,255,.04); color:var(--ink); border:1px solid var(--line); transition:.12s; }
+  button:hover{ background:rgba(111,227,245,.10); }
+  button.on{ background:var(--cy); color:#05060a; border-color:var(--cy); }
+  .col{ display:grid; gap:4px; }
+
+  .tele{ position:fixed; top:16px; right:16px; width:224px; z-index:10;
+         background:rgba(6,10,14,.80); border:1px solid var(--line);
+         backdrop-filter:blur(8px); padding:12px 14px; }
+  .row{ display:flex; justify-content:space-between; gap:8px; padding:2.5px 0; }
+  .row span{ color:var(--dim); } .row b{ font-weight:500; }
+  .hdr{ color:var(--cy); font-size:10px; letter-spacing:.14em; margin:10px 0 4px;
+        border-top:1px solid var(--line); padding-top:8px; }
+  .hdr:first-child{ border-top:0; margin-top:0; padding-top:0; }
+
+  .hint{ position:fixed; bottom:14px; left:16px; color:var(--dim); font-size:10px; z-index:10; }
+  #fade{ position:fixed; inset:0; z-index:40; background:#05060a; pointer-events:none;
+         opacity:0; transition:opacity .7s ease; }
+  #fade.on{ opacity:1; }
+  #land{ position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:12; }
+  #land{ display:flex; gap:8px; }
+  #drive{ position:fixed; right:16px; bottom:16px; width:212px; z-index:12; display:none;
+          background:rgba(6,10,14,.82); border:1px solid var(--line); backdrop-filter:blur(8px);
+          padding:11px 13px; }
+  #drive.on{ display:block; }
+  .dr{ display:flex; justify-content:space-between; gap:8px; padding:2.5px 0; }
+  .dr span{ color:var(--dim); } .dr b{ font-weight:500; color:var(--ink); }
+  .dk{ color:var(--dim); font-size:10px; margin-top:8px; border-top:1px solid var(--line);
+       padding-top:7px; line-height:1.7; }
+  #land button{ font-size:11px; letter-spacing:.16em; padding:10px 22px;
+                background:rgba(6,10,14,.85); border:1px solid var(--cy); color:var(--cy); }
+  #land button:hover{ background:var(--cy); color:#05060a; }
+  #busy{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+         background:#05060a; color:var(--cy); letter-spacing:.22em; font-size:12px; }
+  #err{ position:fixed; right:16px; bottom:16px; max-width:520px; z-index:99; background:#2a0d0d;
+        border:1px solid #ff5f56; color:#ffd9d6; padding:12px 14px; font-size:11px;
+        line-height:1.6; white-space:pre-wrap; display:none; }
+  #err b{ color:#ff5f56; display:block; margin-bottom:6px; letter-spacing:.1em; }
+
+  .survey-world-label{position:fixed;left:0;top:0;z-index:8;pointer-events:none;padding:5px 9px;
+    border:1px solid #779da977;background:#101d22dc;color:#adced1;font:10px/1.5 ui-monospace,monospace;
+    white-space:nowrap;box-shadow:0 2px 14px #0003;}
+  .survey-world-label.is-active{border-color:#a8fff0;color:#d5fff6;}
+  .survey-world-label.is-done{border-color:#7ee0a877;color:#7ee0a8;}
+  .survey-navigation{position:fixed;bottom:105px;left:50%;transform:translateX(-50%);z-index:15;
+    max-width:calc(100vw - 390px);padding:9px 15px;background:#101d22e0;border:1px solid #8feadd66;
+    color:#d5fff6;font:11px/1.6 ui-monospace,monospace;text-align:center;pointer-events:none;}
+  .survey-route-map{position:fixed;right:24px;bottom:108px;width:156px;height:174px;z-index:15;
+    background:#101d22dd;border:1px solid #8feadd44;pointer-events:none;}
+  [hidden].survey-world-label,[hidden].survey-navigation,[hidden].survey-route-map{display:none;}
+  @media(max-width:760px){.survey-route-map{right:12px;bottom:146px;width:117px;height:131px;}
+    .survey-navigation{bottom:97px;max-width:calc(100vw - 24px);width:max-content;font-size:10px;padding:7px 10px;}}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="panel">
+  <h1>谷底视角</h1>
+  <div class="sub" id="siteSub">—</div>
+
+  <div class="lab">机位</div>
+  <div class="col">
+    <button id="vFloor" class="on">谷底望北壁 · 主视图</button>
+    <button id="vClose">近景 · 岩块与仪器</button>
+    <button id="vRim">北缘 · 回望峡谷</button>
+  </div>
+
+  <div class="lab">焦段 <b id="fovLab">—</b></div>
+  <input type="range" id="fov" min="16" max="72" step="1" value="30" />
+
+  <div class="lab">太阳方位 <b id="azLab">—</b></div>
+  <input type="range" id="az" min="0" max="359" step="1" value="250" />
+
+  <div class="lab">太阳高度角 <b id="elLab">—</b></div>
+  <input type="range" id="el" min="2" max="70" step="1" value="18" />
+
+  <div class="lab">大气浑浊度 <b id="hazeLab">—</b></div>
+  <input type="range" id="haze" min="0" max="60" step="1" value="24" />
+
+  <div class="lab">尘埃</div>
+  <div class="col" style="grid-template-columns:1fr 1fr; display:grid">
+    <button id="dOn" class="on">开</button>
+    <button id="dOff">关</button>
+  </div>
+</div>
+
+<div class="tele">
+  <div class="hdr">站立点</div>
+  <div id="siteRows"></div>
+  <div class="hdr">正前方 30 km</div>
+  <div id="wallRows"></div>
+  <div class="hdr">场景</div>
+  <div id="statRows"></div>
+</div>
+
+<div class="hint">拖动 = 转头 · 滚轮 = 焦段 · K = 存一帧 PNG</div>
+<div id="land"><button id="driveBtn">遥控探测车 · MU-7 仙后座</button><button id="buildBtn">在此建站 · 建造穹顶公园 →</button></div>
+<div id="drive">
+  <div class="dr"><span>车速</span><b id="dSpd">—</b></div>
+  <div class="dr"><span>里程</span><b id="dOdo">—</b></div>
+  <div class="dr"><span>坡度</span><b id="dSlp">—</b></div>
+  <div class="dr"><span>着地轮</span><b id="dCon">—</b></div>
+  <div class="dr"><span>轮陷</span><b id="dSnk">—</b></div>
+  <div class="dr"><span>牵引力控制</span><b id="dTc">—</b></div>
+  <div class="dr"><span>机位</span><b id="dCam">跟车</b></div>
+  <div class="dr"><span>视距 / 焦段</span><b id="dLen">—</b></div>
+  <div class="dk">W/S 油门 · A/D 转向 · 空格 刹车 · T 牵引力控制 · Esc 回到步行<br>
+    拖动 = 转视角 · 滚轮 = 拉近拉远 · C = 换机位（跟车 / 环绕 / 桅杆 / 自由）<br>
+    自由机位：WASD 飞 · E/空格 升 · Q 降 · Shift 加速</div>
+</div>
+<div id="fade"></div>
+<div id="busy">正在生成地形…</div>
+<div id="err"></div>
+
+<script src="../data/mola_4ppd.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three/three.module.js",
+    "three/addons/": "../vendor/three/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+/* ============================================================
+   COSMOS 火星地面视角 —— 科普剌忒斯峡谷谷底
+   规格见 docs/scene-spec.md
+
+   和轨道视角（tools/mars-orbit.html）共用同一份 MOLA 高程。
+   那边是对整个星球做光线步进，这边是站在地上，所以两件事必须做对：
+     1. 球面弯曲不能省。30 km 外要沉下去 133 m，不减这一项，
+        远处的崖顶会浮得比实际高，整个画面的距离感就散了。
+     2. MOLA 只有 14.8 km 一个采样点，比人眼近处的尺度粗了六个数量级。
+        大形状归数据，14.8 km 以下的全部由分形补 —— 并且要按网格密度
+        逐倍频截断，否则远处会闪成一片噪点。
+   ============================================================ */
+import * as THREE from 'three';
+import { getJourney, startJourney, updateJourney, sceneURL, isJourneyMode, getSettings } from '../src/journey/state.js';
+import { mountJourneyUI } from '../src/journey/ui.js';
+import { mountMobility } from '../src/journey/mobility.js';
+
+const qs0 = new URLSearchParams(location.search);
+const SURVIVAL = qs0.get('survival') === '1' && qs0.get('ui') !== '0';
+if(SURVIVAL) document.body.classList.add('survival-mode');
+const JOURNEY = !SURVIVAL && isJourneyMode() && qs0.get('ui') !== '0' && qs0.get('explore') !== '1';
+const savedJourney = JOURNEY ? (getJourney() || startJourney()) : null;
+let journeyUI = null, missionPaused = false;
+let mobility = null;
+let DRIVING = false;              // 驾驶模式开关，交互段要先看到它
+const errBox = document.getElementById('err');
+function fail(t,d){ errBox.style.display='block'; errBox.innerHTML='<b>'+t+'</b>'+(d||'');
+  const b=document.getElementById('busy'); if(b) b.style.display='none'; }
+addEventListener('error', e => fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')));
+
+if (typeof window.MOLA === 'undefined')
+  { fail('缺少 MOLA 数据', '需要 ../data/mola_4ppd.js'); throw new Error('no data'); }
+
+const D2R = Math.PI/180, R_M = 3396200;          // 火星基准半径（米）
+const TW = MOLA.w, TH = MOLA.h, HB = atob(MOLA.b64);
+
+/* ============================================================
+   高程
+   ============================================================ */
+function molaRaw(ix, iy){
+  ix = ((ix % TW) + TW) % TW;
+  iy = Math.max(0, Math.min(TH-1, iy));
+  const i = iy*TW + ix;
+  let v = (HB.charCodeAt(i*2) << 8) | HB.charCodeAt(i*2+1);
+  if(v & 0x8000) v -= 0x10000;
+  return v;                                        // 米
+}
+function molaH(lat, lon){
+  const fx = (((lon % 360) + 360) % 360)/0.25 - 0.5;
+  const fy = (90 - lat)/0.25 - 0.5;
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const tx = fx - x0, ty = fy - y0;
+  const a = molaRaw(x0,y0),   b = molaRaw(x0+1,y0);
+  const c = molaRaw(x0,y0+1), d = molaRaw(x0+1,y0+1);
+  return (a*(1-tx)+b*tx)*(1-ty) + (c*(1-tx)+d*tx)*ty;
+}
+
+/* ============================================================
+   确定性噪声。所有程序化系统都从固定种子出发，同一帧永远可复现。
+   ============================================================ */
+const SEED_TERRAIN = 20520114, SEED_ROCK = 8815, SEED_DUST = 4471;
+function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15, 1|a); t=t+Math.imul(t^t>>>7, 61|t)^t;
+  return ((t^t>>>14)>>>0)/4294967296; }; }
+function hash2(x, y, s){
+  let h = x*374761393 + y*668265263 + s*1274126177;
+  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0)/4294967296;
+}
+const sm = t => t*t*(3-2*t);
+function vnoise2(x, y, s){
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = sm(x-xi), yf = sm(y-yi);
+  const a = hash2(xi,yi,s),   b = hash2(xi+1,yi,s);
+  const c = hash2(xi,yi+1,s), d = hash2(xi+1,yi+1,s);
+  return (a*(1-xf)+b*xf)*(1-yf) + (c*(1-xf)+d*xf)*yf;
+}
+function hash3(x,y,z,s){
+  let h = x*374761393 + y*668265263 + z*2147483647 + s*1274126177;
+  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0)/4294967296;
+}
+function vnoise3(x,y,z,s){
+  const xi=Math.floor(x), yi=Math.floor(y), zi=Math.floor(z);
+  const xf=sm(x-xi), yf=sm(y-yi), zf=sm(z-zi);
+  const l = (a,b,t)=>a*(1-t)+b*t;
+  const c00=l(hash3(xi,yi,zi,s),   hash3(xi+1,yi,zi,s),   xf);
+  const c10=l(hash3(xi,yi+1,zi,s), hash3(xi+1,yi+1,zi,s), xf);
+  const c01=l(hash3(xi,yi,zi+1,s), hash3(xi+1,yi,zi+1,s), xf);
+  const c11=l(hash3(xi,yi+1,zi+1,s),hash3(xi+1,yi+1,zi+1,s),xf);
+  return l(l(c00,c10,yf), l(c01,c11,yf), zf);
+}
+
+/* ============================================================
+   站点与地形函数
+   ============================================================ */
+/* 坐标落在 MOLA 采样格的正中心。
+   随手写 −13.25/300.0 会落在四个格子的交界上，双线性一平均，
+   谷底就从 −4.64 km 变成 −3.47 km —— 等于站在坡上而不是谷底。 */
+const SITES = {
+  floor: { name:'科普剌忒斯峡谷 · 谷底', lat:-13.375, lon:300.125 },
+  rim:   { name:'科普剌忒斯峡谷 · 北缘', lat:-12.875, lon:300.125 }
+};
+/* 从轨道视角降下来时，着陆点由 URL 带过来。
+   三个机位都改用这个站点 —— 落在奥林帕斯山却还叫「科普剌忒斯北缘」是荒谬的。 */
+{
+  const qla = JOURNEY ? savedJourney.site.lat : parseFloat(qs0.get('lat'));
+  const qlo = JOURNEY ? savedJourney.site.lon : parseFloat(qs0.get('lon'));
+  if(Number.isFinite(qla) && Number.isFinite(qlo)){
+    const c = { name:JOURNEY ? savedJourney.site.name : '选定着陆点', lat:Math.max(-88, Math.min(88, qla)),
+                lon:((qlo % 360) + 360) % 360 };
+    SITES.floor = c; SITES.rim = c;
+  }
+}
+let SITE = SITES.floor, H0 = 0;
+
+// 本地米 → 经纬度。+X 东，+Z 南，所以正北是 −Z。
+function llAt(x, z){
+  const lat = SITE.lat + (-z)/(R_M*D2R);
+  const lon = SITE.lon + x/(R_M*Math.max(0.05, Math.cos(lat*D2R))*D2R);
+  return [lat, lon];
+}
+/* MOLA 4 px/度 = 14.8 km 一个采样点，一道 7.7 km 高、水平只有几公里的崖壁
+   被它抹成了 15° 的缓坡 —— 直接拿来用，画面里就只有山包，没有峡谷。
+   这里做一次反锐化：减去 27 km 尺度的低通，再把差值加回去。
+   等于把采样过程吃掉的那部分对比度补回来。台地更平、崖坡更陡、谷底更深。 */
+function molaSharp(lat, lon){
+  const h = molaH(lat, lon), d = 0.45;
+  const blur = (molaH(lat+d,lon) + molaH(lat-d,lon) +
+                molaH(lat,lon+d) + molaH(lat,lon-d) + 2*h) / 6;
+  /* 系数 0.45 是算出来的，不是调出来的：0.95 会把 30 km 处的崖顶推到
+     21.6° 仰角，超过画面上沿，整幅图连一条天都不剩。0.45 落在 17.8°。 */
+  return h + 0.45*(h - blur);
+}
+
+// MOLA 局部坡度（无量纲），用来决定分形细节该给多少
+function molaSlope(lat, lon){
+  const d = 0.25;                                  // 一个采样格
+  const gx = (molaH(lat, lon+d) - molaH(lat, lon-d)) / (2*d*D2R*R_M*Math.cos(lat*D2R));
+  const gy = (molaH(lat+d, lon) - molaH(lat-d, lon)) / (2*d*D2R*R_M);
+  return Math.hypot(gx, gy);
+}
+
+function ridge2(x, y, s){ return 1 - Math.abs(vnoise2(x,y,s)*2 - 1); }
+
+/* 分形细节。
+   每一倍频只有在「波长明显大于本地网格间距」时才计入（下面的 w）。
+   不做这个截断，远处每个格子都会采到高频噪声，崖面会闪成一片盐粒。
+
+   缓坡和陡坡用的是两套噪声，这一点很要紧：
+   普通 fBm 生成的是圆滚滚的丘，糊在 7 km 高的崖面上就成了沙丘。
+   崖面要的是脊状多重分形 —— 取 1−|2n−1| 把噪声折出尖脊，再让上一层
+   的脊线去调制下一层的幅度，出来的才是峡谷壁那种放射状的脊沟。 */
+function detail(x, z, slope, cell){
+  const s = Math.min(1, slope*4.2);
+  const cut = (wl) => Math.min(1, Math.max(0, (wl - cell*1.5)/(cell*2.2)));
+  let sum = 0;
+
+  // 缓形：大尺度起伏，陡坡上压低，免得和脊沟打架
+  let amp = 42*(1 - 0.55*s), freq = 1/5200;
+  for(let i=0; i<8; i++){
+    const w = cut(1/freq);
+    if(w > 0.001) sum += amp*(vnoise2(x*freq, z*freq, SEED_TERRAIN+i) - 0.5)*2*w;
+    amp *= 0.52; freq *= 2.07;
+  }
+
+  // 脊沟：只在有坡的地方出现
+  if(s > 0.02){
+    let a = 430*s, f = 1/2700, weight = 1;
+    for(let i=0; i<9; i++){
+      const w = cut(1/f);
+      if(w > 0.001){
+        const r = ridge2(x*f, z*f, SEED_TERRAIN+40+i);
+        const r2 = r*r;
+        sum += a*(r2 - 0.42)*weight*w;
+        weight = 0.55 + 0.45*r2;                 // 上一层脊线调制下一层
+      }
+      a *= 0.53; f *= 2.11;
+    }
+  }
+
+  /* 近场砾质地面：真实风化面到厘米级都还是粗的。
+     纯分形律（幅度随波长等比缩小）在米级只剩几毫米，地面就成了沙丘。
+     所以这一层刻意不遵守那条律，衰减放慢，一直铺到 0.4 m 波长。 */
+  if(cell < 3){
+    let a = 0.30, f = 1/22;
+    for(let i=0; i<7; i++){
+      const w = cut(1/f);
+      if(w > 0.001) sum += a*(vnoise2(x*f, z*f, SEED_TERRAIN+70+i) - 0.5)*2*w;
+      a *= 0.58; f *= 2.15;
+    }
+  }
+  /* 风成沙纹。火星地表最有辨识度的一件东西，也是所有「看着像沙丘」的
+     渲染里最缺的一件：真实的风纹是准周期的横向条纹，波长 1.5–3 m，
+     起伏只有几厘米，成片出现而不是铺满。缺了它，近景就只是一团模糊的起伏。 */
+  if(cell < 1.5){
+    const WD = 112*Math.PI/180;                    // 盛行风向
+    const u = x*Math.cos(WD) + z*Math.sin(WD);
+    const wander = vnoise2(x/70, z/70, SEED_TERRAIN+90)*7.0;
+    const patch = Math.max(0, vnoise2(x/34, z/34, SEED_TERRAIN+91) - 0.25)*1.7;
+    const wl = 2.15 + vnoise2(x/120, z/120, SEED_TERRAIN+92)*1.3;
+    sum += 0.095 * patch * cut(wl) * Math.sin(u/wl*Math.PI*2 + wander);
+  }
+  return sum;
+}
+function terrainY(x, z, cell){
+  const [lat, lon] = llAt(x, z);
+  const base = molaSharp(lat, lon) - H0;
+  const curve = (x*x + z*z)/(2*R_M);               // 球面沉降
+  return base - curve + detail(x, z, molaSlope(lat, lon), cell === undefined ? 0.4 : cell);
+}
+
+/* ============================================================
+   渲染器 / 场景
+   ============================================================ */
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias:true, logarithmicDepthBuffer:true, preserveDrawingBuffer:true
+});
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 600000);
+
+const HAZE = new THREE.Color();
+scene.fog = new THREE.FogExp2(0x000000, 2.4e-5);
+
+/* ---- 天空 ---- */
+const skyUni = {
+  uSun:     { value: new THREE.Vector3(0,1,0) },
+  uZenith:  { value: new THREE.Color() },
+  uHorizon: { value: new THREE.Color() },
+  uSunCol:  { value: new THREE.Color(1.0, 0.95, 0.86) }
+};
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 48, 24),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthTest:false, depthWrite:false, fog:false,
+    uniforms: skyUni,
+    vertexShader: `
+      varying vec3 vDir;
+      void main(){
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      precision highp float;
+      varying vec3 vDir;
+      uniform vec3 uSun, uZenith, uHorizon, uSunCol;
+      void main(){
+        vec3 d = normalize(vDir);
+        float h = clamp(d.y, -1.0, 1.0);
+        vec3 c = mix(uHorizon, uZenith, pow(clamp(h,0.0,1.0), 0.55));
+        c = mix(c, uHorizon*0.62, smoothstep(0.0, -0.15, h));
+        float cs = dot(d, uSun);
+        /* 火星天空的签名特征：日面周围是冷蓝色的前向散射光晕，
+           因为尘粒的粒径和可见光同量级，前向散射偏蓝。
+           把这一笔去掉，天空就只是一块橙色渐变，立刻假。 */
+        c = mix(c, vec3(0.42,0.52,0.70), pow(max(cs,0.0), 22.0)*0.55);
+        c = mix(c, vec3(0.70,0.78,0.90), pow(max(cs,0.0), 240.0)*0.65);
+        c += uSunCol * smoothstep(0.99975, 0.99992, cs) * 2.4;
+        gl_FragColor = vec4(c, 1.0);
+        /* 自定义 ShaderMaterial 不会自动接上色调映射和输出色彩空间。
+           不补这两段，天空是唯一没走 ACES 的物体，会比地形亮一大截、
+           而且和雾色对不上 —— 地平线上会出现一道假的接缝。 */
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`
+  })
+);
+sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
+
+sky.scale.setScalar(300000);
+
+/* ---- 光 ---- */
+const sun = new THREE.DirectionalLight(0xfff0dc, 2.6);
+sun.castShadow = true;
+/* 阴影框放到 ±420 m。之前用 ±170 m，框边正好落在画面中景，
+   框内框外的地面亮度差出一条笔直的竖线 —— 在一片自然地形里，
+   任何一条直线都会立刻被眼睛抓住。放大到雾已经把它糊掉的距离为止。 */
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.camera.left = -420; sun.shadow.camera.right = 420;
+sun.shadow.camera.top  =  420; sun.shadow.camera.bottom = -420;
+sun.shadow.camera.near = 1;    sun.shadow.camera.far = 3200;
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+scene.add(sun); scene.add(sun.target);
+
+const fill = new THREE.HemisphereLight(0xffd9b0, 0x6b4732, 0.55);
+scene.add(fill);
+
+/* ============================================================
+   世界（可按站点重建）
+   ============================================================ */
+const NT = 640, NR = 900, R0 = 0.5, RMAX = 200000;
+const GROWTH = Math.exp(Math.log(RMAX/R0)/(NR-1));
+
+const world = new THREE.Group(); scene.add(world);
+let terrainMesh = null, rockMeshes = [], mastGroup = null, dust = null;
+const STATS = { verts:0, tris:0, rocks:0, dust:0 };
+
+const srgb = (r,g,b) => new THREE.Color().setRGB(r,g,b, THREE.SRGBColorSpace);
+
+function disposeWorld(){
+  world.traverse(o => {
+    if(o.geometry) o.geometry.dispose();
+    if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose()); }
+  });
+  world.clear();
+  rockMeshes = []; mastGroup = null; dust = null; terrainMesh = null;
+}
+
+/* ---- 地形：极坐标网格 ----
+   相机是固定机位，所以用以相机为中心的极坐标网最省：分辨率天然随距离衰减，
+   而且是一张连通的网，不存在多级方形网格之间的 T 型接缝。 */
+function buildTerrain(){
+  const count = NT*NR + 1;
+  const pos = new Float32Array(count*3);
+  const col = new Float32Array(count*3);
+  const idx = new Uint32Array(NT*3 + (NR-1)*NT*6);
+
+  const rockC = srgb(0.34,0.25,0.21), dustC = srgb(0.66,0.47,0.33), crest = srgb(0.78,0.60,0.44);
+  const tmp = new THREE.Color();
+
+  function put(i, x, z, cell){
+    const y = terrainY(x, z, cell);
+    pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+
+    /* 顶点色：坡度决定尘/岩，陡坡再叠水平层理。
+       层理是这堵墙唯一能说明「它有 7 km 高」的东西 —— 没有横向条带，
+       任何高度的斜坡看起来都一样。峡谷壁的沉积层实际就是这样一层层露出来的。 */
+    const [lat, lon] = llAt(x, z);
+    const sl = Math.min(1, molaSlope(lat, lon)*4.5);
+    const streak = vnoise2(x/900, z/2600, SEED_TERRAIN+31);
+    tmp.copy(dustC).lerp(rockC, sl*0.85);
+    tmp.lerp(crest, Math.max(0, streak-0.62)*0.9*(1-sl));
+    if(sl > 0.15){
+      const band = Math.sin(y/135 + vnoise2(x/3400, z/3400, SEED_TERRAIN+52)*4.0);
+      tmp.offsetHSL(0, 0, band*0.085*sl);
+    }
+    if(cell < 1.2){                                 // 近处的砾石斑驳
+      const sp = (vnoise2(x*1.35, z*1.35, SEED_TERRAIN+61) - 0.5)
+               + (vnoise2(x*4.7,  z*4.7,  SEED_TERRAIN+62) - 0.5)*0.6;
+      tmp.offsetHSL(0, 0, sp*0.13);
+    }
+    col[i*3] = tmp.r; col[i*3+1] = tmp.g; col[i*3+2] = tmp.b;
+  }
+
+  put(0, 0, 0, 0.02);
+  for(let ri=0; ri<NR; ri++){
+    const r = R0*Math.pow(GROWTH, ri);
+    const cell = Math.max(0.02, r*(GROWTH-1));
+    for(let ti=0; ti<NT; ti++){
+      const a = ti/NT*Math.PI*2;
+      put(1 + ri*NT + ti, Math.cos(a)*r, Math.sin(a)*r, cell);
+    }
+  }
+
+  let k = 0;
+  for(let ti=0; ti<NT; ti++){                       // 中心扇面
+    idx[k++] = 0; idx[k++] = 1 + (ti+1)%NT; idx[k++] = 1 + ti;
+  }
+  for(let ri=0; ri<NR-1; ri++){
+    const a0 = 1 + ri*NT, b0 = 1 + (ri+1)*NT;
+    for(let ti=0; ti<NT; ti++){
+      const tn = (ti+1)%NT;
+      idx[k++] = a0+ti; idx[k++] = b0+tn; idx[k++] = b0+ti;
+      idx[k++] = a0+ti; idx[k++] = a0+tn; idx[k++] = b0+tn;
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+
+  const m = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.96, metalness:0.0 });
+  terrainMesh = new THREE.Mesh(g, m);
+  terrainMesh.name = 'terrain';
+  terrainMesh.receiveShadow = true;
+  world.add(terrainMesh);
+
+  STATS.verts = count; STATS.tris = k/3;
+}
+
+/* ---- 岩块 ---- */
+function rockGeometry(seed, sx, sy, sz){
+  const g = new THREE.IcosahedronGeometry(1, 2);   // 非索引，位移必须是位置的纯函数
+  const p = g.attributes.position;
+  for(let i=0; i<p.count; i++){
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const n = 1
+      + 0.30*(vnoise3(x*1.6+3.1, y*1.6, z*1.6, seed) - 0.5)
+      + 0.15*(vnoise3(x*3.7, y*3.7+1.9, z*3.7, seed+7) - 0.5)
+      + 0.07*(vnoise3(x*8.3, y*8.3, z*8.3+5.5, seed+13) - 0.5);
+    p.setXYZ(i, x*n*sx, y*n*sy, z*n*sz);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+function buildRocks(){
+  const rnd = mulberry(SEED_ROCK);
+  const kinds = [
+    { geo: rockGeometry(SEED_ROCK,     1.0, 0.72, 0.94), n:0 },
+    { geo: rockGeometry(SEED_ROCK+101, 0.86,0.55, 1.12), n:0 },
+    { geo: rockGeometry(SEED_ROCK+202, 1.15,0.94, 0.80), n:0 }
+  ];
+  const TOTAL = 4200, RAD = 400;
+  const picks = [[],[],[]];
+  const mat4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const v = new THREE.Vector3(), s3 = new THREE.Vector3();
+
+  for(let i=0; i<TOTAL; i++){
+    const u = rnd();
+    const r = 2.5 + RAD*Math.pow(u, 0.62);
+    const a = rnd()*Math.PI*2;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r;
+    if(Math.hypot(x-MAST.x, z-MAST.z) < 2.5) continue;      // 别长到仪器脚下
+    const cell = Math.max(0.02, r*(GROWTH-1));
+    const [lat, lon] = llAt(x, z);
+    if(molaSlope(lat, lon) > 0.62) continue;                 // 太陡的坡不积岩
+    // 幂律粒径：小石头远多于大石头，这是真实岩块场的样子
+    const sz = Math.min(2.6, 0.11*Math.pow(1 - rnd()*0.985, -0.42));
+    const y = terrainY(x, z, cell) - sz*0.30;                // 埋进去三成，不能浮着
+    const kind = (rnd()*3)|0;
+    e.set(rnd()*Math.PI, rnd()*Math.PI*2, rnd()*Math.PI);
+    q.setFromEuler(e);
+    s3.set(sz, sz, sz);
+    v.set(x, y, z);
+    picks[kind].push(new THREE.Matrix4().compose(v, q, s3));
+  }
+
+  const rockBase = srgb(0.48,0.35,0.28);
+  for(let ki=0; ki<3; ki++){
+    const list = picks[ki];
+    if(!list.length) continue;
+    const m = new THREE.MeshStandardMaterial({ color: rockBase, roughness:0.92, metalness:0.0 });
+    const inst = new THREE.InstancedMesh(kinds[ki].geo, m, list.length);
+    inst.name = 'rocks-'+ki;
+    inst.castShadow = true; inst.receiveShadow = true;
+    const c = new THREE.Color();
+    for(let i=0; i<list.length; i++){
+      inst.setMatrixAt(i, list[i]);
+      const t = rnd()*0.34 - 0.17;
+      c.setRGB(Math.max(0,rockBase.r+t*0.5), Math.max(0,rockBase.g+t*0.4), Math.max(0,rockBase.b+t*0.34));
+      inst.setColorAt(i, c);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    if(inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    world.add(inst); rockMeshes.push(inst);
+    STATS.rocks += list.length;
+  }
+}
+
+/* ---- 仪器三脚架：整个场景唯一的人体尺度锚点 ----
+   三只脚各自落在自己那点的地形上，不是摆在一个假想平面上 —— 站在坡上时
+   这一点立刻能看出来。 */
+const MAST = { x: 5.6, z: -17.5, h: 1.62 };
+function buildMast(){
+  const g = new THREE.Group(); g.name = 'mast';
+  const metal = new THREE.MeshStandardMaterial({ color: srgb(0.78,0.80,0.82), roughness:0.45, metalness:0.85 });
+  const shade = new THREE.MeshStandardMaterial({ color: srgb(0.91,0.85,0.72), roughness:0.6, metalness:0.0,
+                                                 side: THREE.DoubleSide });
+
+  const feet = [];
+  for(let i=0; i<3; i++){
+    const a = i/3*Math.PI*2 + 0.4;
+    const fx = MAST.x + Math.cos(a)*0.62, fz = MAST.z + Math.sin(a)*0.62;
+    feet.push(new THREE.Vector3(fx, terrainY(fx, fz, 0.05), fz));
+  }
+  const hubY = Math.max(feet[0].y, feet[1].y, feet[2].y) + 0.58;
+  const hub = new THREE.Vector3(MAST.x, hubY, MAST.z);
+
+  for(const f of feet){
+    const curve = new THREE.CatmullRomCurve3([
+      f.clone(),
+      f.clone().lerp(hub, 0.5).setY(f.y + (hubY-f.y)*0.52),
+      hub.clone()
+    ]);
+    const leg = new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.021, 8, false), metal);
+    leg.castShadow = true; g.add(leg);
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.022, 12), metal);
+    pad.position.copy(f).setY(f.y + 0.011);
+    pad.castShadow = true; pad.receiveShadow = true; g.add(pad);
+  }
+
+  const top = hub.clone().setY(hubY + MAST.h - 0.58);
+  const shaft = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3([hub.clone(), top.clone()]), 2, 0.026, 10, false), metal);
+  shaft.castShadow = true; g.add(shaft);
+
+  // 仪器头：旋转面，不是又一个圆柱
+  const prof = [];
+  for(let i=0; i<=10; i++){
+    const t = i/10;
+    prof.push(new THREE.Vector2(0.018 + 0.125*Math.sin(t*Math.PI*0.62), t*0.14));
+  }
+  const head = new THREE.Mesh(new THREE.LatheGeometry(prof, 20), shade);
+  head.position.copy(top); head.castShadow = true; g.add(head);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.010, 8, 24), metal);
+  ring.position.copy(top).setY(top.y - 0.10);
+  ring.rotation.x = Math.PI/2; ring.castShadow = true; g.add(ring);
+
+  mastGroup = g; world.add(g);
+}
+
+/* ---- 尘埃 ---- */
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function buildDust(){
+  const N = 1400, rnd = mulberry(SEED_DUST);
+  const p = new Float32Array(N*3), ph = new Float32Array(N);
+  for(let i=0; i<N; i++){
+    const a = rnd()*Math.PI*2, r = 2 + 88*Math.pow(rnd(), 0.6);
+    const x = Math.cos(a)*r, z = Math.sin(a)*r;
+    // 压在 1.1 m 以下：飘到眼高以上就会投影到天空里，看着像一片假星星
+    p[i*3] = x; p[i*3+1] = terrainY(x, z, 0.3) + 0.05 + rnd()*1.1; p[i*3+2] = z;
+    ph[i] = rnd()*Math.PI*2;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  g.userData.phase = ph; g.userData.base = p.slice();
+  dust = new THREE.Points(g, new THREE.PointsMaterial({
+    color: srgb(0.86,0.72,0.56), size: 0.06, sizeAttenuation:true,
+    transparent:true, opacity:0.30, depthWrite:false
+  }));
+  dust.name = 'dust'; world.add(dust);
+  STATS.dust = N;
+}
+
+function buildWorld(){
+  disposeWorld();
+  STATS.verts = STATS.tris = STATS.rocks = STATS.dust = 0;
+  H0 = molaSharp(SITE.lat, SITE.lon);
+  buildTerrain(); buildRocks(); buildMast(); buildDust();
+  document.getElementById('siteSub').textContent =
+    SITE.name + ' · ' + Math.abs(SITE.lat).toFixed(2) + '°S / ' + SITE.lon.toFixed(1) + '°E';
+}
+
+/* ============================================================
+   机位
+   ============================================================ */
+const VIEWS = {
+  floor: { site:'floor', eye:1.75, yaw:0,     pitch:7.5,  fov:30, btn:'vFloor' },
+  close: { site:'floor', eye:1.55, yaw:17.7,  pitch:-1.2, fov:22, btn:'vClose', aim:'mast' },
+  rim:   { site:'rim',   eye:1.80, yaw:180,   pitch:-7.0, fov:52, btn:'vRim'  }
+};
+const CAM = { yaw:0, pitch:7.5, eye:1.75, fov:30 };
+let viewName = 'floor';
+
+function applyCamera(){
+  const y = CAM.yaw*D2R, p = CAM.pitch*D2R;
+  camera.position.set(0, terrainY(0,0,0.02) + CAM.eye, 0);
+  camera.lookAt(
+    camera.position.x + Math.sin(y)*Math.cos(p),
+    camera.position.y + Math.sin(p),
+    camera.position.z - Math.cos(y)*Math.cos(p)
+  );
+  camera.fov = CAM.fov; camera.updateProjectionMatrix();
+}
+function setView(name){
+  const v = VIEWS[name]; if(!v) return;
+  const needRebuild = SITES[v.site] !== SITE || !terrainMesh;
+  SITE = SITES[v.site];
+  viewName = name;
+  CAM.yaw = v.yaw; CAM.pitch = v.pitch; CAM.eye = v.eye; CAM.fov = v.fov;
+  for(const k in VIEWS) document.getElementById(VIEWS[k].btn).classList.toggle('on', k===name);
+  document.getElementById('fov').value = v.fov;
+  document.getElementById('fovLab').textContent = v.fov+'°';
+  if(needRebuild) buildWorld();
+
+  /* 近景机位不能写死俯仰角。地形是分形的，仪器脚下那点的高度由噪声决定，
+     和相机脚下差出两三米很正常 —— 写死角度的结果就是主体被顶出画面。
+     所以运行时把相机对准仪器，让预设永远框得住它。 */
+  if(v.aim === 'mast'){
+    const eyeY = terrainY(0, 0, 0.02) + CAM.eye;
+    const my = terrainY(MAST.x, MAST.z, 0.05) + MAST.h*0.55;
+    const d = Math.hypot(MAST.x, MAST.z);
+    CAM.yaw   = Math.atan2(MAST.x, -MAST.z)/D2R;
+    CAM.pitch = Math.atan2(my - eyeY, d)/D2R;
+  }
+  applyCamera();
+}
+
+/* ============================================================
+   太阳与大气
+   ============================================================ */
+const SUN = { az:250, el:18, haze:24 };
+function sunDir(){
+  const a = SUN.az*D2R, e = SUN.el*D2R;
+  return new THREE.Vector3(Math.sin(a)*Math.cos(e), Math.sin(e), -Math.cos(a)*Math.cos(e));
+}
+function applySun(){
+  const d = sunDir();
+  sun.position.copy(d).multiplyScalar(1400);
+  sun.target.position.set(0, 0, 0);
+  skyUni.uSun.value.copy(d);
+
+  /* 太阳越低，穿过的尘越厚，天光越红越暗；这一条不做，黄昏和正午会长一个样。 */
+  const lowness = Math.max(0, 1 - SUN.el/45);
+  const t = SUN.haze/60;
+  /* 霾色必须明显亮于地面反照率。两者贴太近，30 km 外的崖面就和脚下的
+     沙地是同一个明度，画面立刻压成一张平的 —— 这是第一版最大的毛病。 */
+  HAZE.setRGB(
+    0.86 + 0.09*t - 0.10*lowness,
+    0.58 + 0.07*t - 0.16*lowness,
+    0.40 + 0.02*t - 0.13*lowness,
+    THREE.SRGBColorSpace
+  );
+  skyUni.uHorizon.value.copy(HAZE);
+  skyUni.uZenith.value.setRGB(0.34 - 0.05*t, 0.21 - 0.02*t, 0.20 + 0.03*t, THREE.SRGBColorSpace);
+  scene.fog.color.copy(HAZE);
+  scene.fog.density = (1.5 + t*3.4) * 1.1e-5;
+
+  sun.intensity = 2.6 * (0.35 + 0.65*Math.min(1, SUN.el/28));
+  fill.color.copy(HAZE); fill.intensity = 0.42 + 0.5*t;
+}
+
+/* ============================================================
+   遥测
+   ============================================================ */
+const row = (k,v) => '<div class="row"><span>'+k+'</span><b>'+v+'</b></div>';
+function telemetry(){
+  const h = molaH(SITE.lat, SITE.lon);
+  document.getElementById('siteRows').innerHTML =
+    row('纬度', Math.abs(SITE.lat).toFixed(2)+'°'+(SITE.lat>=0?'N':'S')) +
+    row('经度', SITE.lon.toFixed(2)+'°E') +
+    row('MOLA 高程', (h/1000).toFixed(2)+' km') +
+    row('眼高', CAM.eye.toFixed(2)+' m');
+
+  // 正北 30 km 处的崖面读数 —— 主视图要看的就是这一栏
+  const zz = -30000, yy = terrainY(0, zz, 800);
+  const rise = yy - (terrainY(0,0,0.02) + CAM.eye);
+  document.getElementById('wallRows').innerHTML =
+    row('相对高差', (rise/1000).toFixed(2)+' km') +
+    row('仰角', (Math.atan2(rise, 30000)/D2R).toFixed(1)+'°') +
+    row('球面沉降', (30000*30000/(2*R_M)).toFixed(0)+' m');
+
+  document.getElementById('statRows').innerHTML =
+    row('地形顶点', (STATS.verts/1000).toFixed(0)+' k') +
+    row('三角形', (STATS.tris/1000).toFixed(0)+' k') +
+    row('岩块实例', STATS.rocks) +
+    row('太阳', SUN.az+'° / '+SUN.el+'°') +
+    '<div class="row"><span>帧率</span><b style="color:'+
+      (FPS<28?'var(--bad)':FPS<45?'var(--warn)':'var(--good)')+'">'+FPS.toFixed(0)+' fps</b></div>';
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+/* 出图模式：?ui=0 收起面板并锁死一切输入。
+   验收截图必须完全由 URL 决定 —— 只要还能被一次误触的滚轮改掉滑块，
+   两次「同一帧」就不是同一帧，视觉对比也就没有意义了。 */
+const LOCKED = qs0.get('ui') === '0';
+if(LOCKED){
+  for(const el of document.querySelectorAll('.panel,.tele,.hint,#land,#drive')) el.style.display = 'none';
+}
+// 滑块不该被路过的滚轮改掉
+for(const el of document.querySelectorAll('input[type=range]'))
+  el.addEventListener('wheel', e => e.preventDefault(), { passive:false });
+
+let drag=false, px=0, py=0;
+canvas.addEventListener('pointerdown', e=>{ if(LOCKED || missionPaused || DRIVING || mobility?.active || mobility?.walking) return;
+  drag=true; px=e.clientX; py=e.clientY;
+  try { canvas.setPointerCapture(e.pointerId); } catch {} });
+canvas.addEventListener('pointerup', ()=>drag=false);
+canvas.addEventListener('pointercancel', ()=>drag=false);
+canvas.addEventListener('pointermove', e=>{
+  if(!drag || DRIVING || missionPaused || mobility?.active || mobility?.walking) return;      // 驾驶时相机归跟随相机管，拖拽不能来抢
+  // 转头：拖动方向 = 视线方向。每像素的角度按当前焦段算，长焦时自动变慢。
+  const k = CAM.fov/innerHeight;
+  CAM.yaw   = ((CAM.yaw - (e.clientX-px)*k) % 360 + 360) % 360;
+  CAM.pitch = Math.max(-85, Math.min(85, CAM.pitch + (e.clientY-py)*k));
+  px=e.clientX; py=e.clientY;
+  applyCamera();
+});
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  if(LOCKED || DRIVING || missionPaused || mobility?.active || mobility?.walking) return;
+  CAM.fov = Math.max(16, Math.min(72, CAM.fov * Math.exp(e.deltaY*0.0012)));
+  document.getElementById('fov').value = Math.round(CAM.fov);
+  document.getElementById('fovLab').textContent = CAM.fov.toFixed(0)+'°';
+  applyCamera();
+}, {passive:false});
+
+addEventListener('keydown', e=>{
+  const snapshot = e.code === 'KeyK' || (!JOURNEY && !DRIVING && !mobility?.active && !mobility?.walking && (e.key === 's' || e.key === 'S'));
+  if(snapshot && !LOCKED && !missionPaused && !driveLoading && !e.repeat && !e.ctrlKey && !e.metaKey &&
+     !e.target.closest?.('input,textarea,[contenteditable=true]')){
+    renderer.render(scene, camera);
+    const a = document.createElement('a');
+    a.download = 'mars-vista-' + viewName + '.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  }
+});
+
+const $ = id => document.getElementById(id);
+for(const k in VIEWS) $(VIEWS[k].btn).onclick = () => setView(k);
+$('fov').oninput  = () => { CAM.fov = +$('fov').value; $('fovLab').textContent = CAM.fov+'°'; applyCamera(); };
+$('az').oninput   = () => { SUN.az = +$('az').value;  $('azLab').textContent = SUN.az+'°'; applySun(); };
+$('el').oninput   = () => { SUN.el = +$('el').value;  $('elLab').textContent = SUN.el+'°'; applySun(); };
+$('haze').oninput = () => { SUN.haze = +$('haze').value; $('hazeLab').textContent = SUN.haze+'%'; applySun(); };
+$('dOn').onclick  = () => { if(dust) dust.visible=true;  $('dOn').classList.add('on'); $('dOff').classList.remove('on'); };
+$('dOff').onclick = () => { if(dust) dust.visible=false; $('dOff').classList.add('on'); $('dOn').classList.remove('on'); };
+
+/* 交给下一幕：把着陆点原样传给公园，让穹顶落在同一片真实地形上。 */
+$('buildBtn').onclick = () => {
+  if(JOURNEY){ deployStation(); return; }
+  $('fade').classList.add('on');
+  const u = '../park/index.html?build=1&lat=' + SITE.lat.toFixed(4) +
+            '&lon=' + SITE.lon.toFixed(4);
+  setTimeout(() => { location.href = u; }, 720);
+};
+if(LOCKED) $('land').style.display = 'none';
+
+/* ============================================================
+   载具
+   ------------------------------------------------------------
+   直接用月面版那台 MU-7 的物理，一行没改 —— 它对外只依赖
+   heightAt / normalAt 两个函数，所以换个星球只是换一层地形适配。
+   改的是重力、悬挂刚度和活动边界，全在 rover/载具.js 里标了出来。
+   ============================================================ */
+let ROVER = null, rig = null, drvIn = null, terrainAdapter = null;
+let CAM_MODE = null;
+let camWalk = null;
+
+let driveLoading = false, driveLoadPromise = null;
+async function enterDrive(){
+  if(SURVIVAL || LOCKED || DRIVING || (JOURNEY && (ARRIVE.on || missionPaused))) return;
+  if(driveLoading) return driveLoadPromise;
+  driveLoading = true;
+  errBox.style.display = 'none';
+  renderMissionHUD();
+  driveLoadPromise = (async () => {
+    try {
+      if(!ROVER){
+        $('busy').textContent = '正在展开 MU-7…';
+        $('busy').style.display = 'flex';
+        await new Promise(r => requestAnimationFrame(r));
+        const [{ Rover, DRIVE }, { makeTerrainAdapter }, { makeDriveInput }, 相机] =
+          await Promise.all([
+            import('./rover/载具.js'), import('./rover/地形适配.js'),
+            import('./rover/输入.js'), import('./rover/相机机架.js')
+          ]);
+        const { makeCameraRig } = 相机; CAM_MODE = 相机.CAM_MODE;
+        DRIVE.fence = 0;
+        terrainAdapter = makeTerrainAdapter((x,z,c) => terrainY(x, z, c === undefined ? 0.05 : c));
+        ROVER = new Rover(terrainAdapter, scene);
+        const saved = JOURNEY ? getJourney()?.rover : null;
+        const restorable = saved && [saved.x,saved.z,saved.heading,saved.odo].every(Number.isFinite);
+        ROVER.placeAt(restorable ? saved.x : 6, restorable ? saved.z : -14,
+                      restorable ? saved.heading : Math.PI);
+        if(restorable) ROVER.odo = Math.max(0, saved.odo);
+        ROVER.panelDeploy = 1;
+        ROVER.__drive = DRIVE;
+        window.__ROVER = ROVER; window.__TERR = terrainAdapter;
+        drvIn = makeDriveInput(window, { canvas, enabled:false });
+        rig = makeCameraRig(camera, terrainAdapter, { fov:52, fovGain:13, dist:8.6, distMax:60 });
+        window.__RIG = rig; window.__DRVIN = drvIn;
+      }
+      camWalk = { yaw:CAM.yaw, pitch:CAM.pitch, fov:CAM.fov };
+      DRIVING = true;
+      drag = false;
+      drvIn.setEnabled(!missionPaused && !document.hidden);
+      rig.first = true;
+      // 车体的前方是 +Z；朝北时 yaw=PI，镜头必须从南侧看向车头。
+      rig.yaw = Math.atan2(ROVER.forward.x, ROVER.forward.z) + Math.PI;
+      rig.update(0, ROVER, {});
+      $('drive').classList.add('on');
+      $('driveBtn').textContent = '结束遥控 · 返回操作员';
+      $('land').style.opacity = '0.35';
+      if(JOURNEY) journeyUI.toast('W/S 前进与倒车 · A/D 转向 · 空格刹车 · E 扫描');
+    } catch(error){
+      drvIn?.dispose();
+      if(ROVER) scene.remove(ROVER.root);
+      ROVER = null; rig = null; drvIn = null; DRIVING = false;
+      journeyUI?.toast('巡视车加载失败，请重新尝试进入驾驶。');
+      fail('巡视车加载失败', error.message);
+    } finally {
+      driveLoading = false;
+      $('busy').style.display = 'none';
+      renderMissionHUD();
+    }
+  })();
+  return driveLoadPromise;
+}
+function exitDrive(){
+  if(!DRIVING) return;
+  DRIVING = false;
+  ROVER?.vel.set(0,0,0); ROVER?.omega.set(0,0,0);
+  drvIn?.setEnabled(false);
+  cancelScan();
+  saveRover();
+  $('drive').classList.remove('on');
+  $('driveBtn').textContent = '遥控探测车 · MU-7 仙后座';
+  $('land').style.opacity = '1';
+  if(camWalk){ CAM.yaw = camWalk.yaw; CAM.pitch = camWalk.pitch; CAM.fov = camWalk.fov; }
+  applyCamera();
+  renderMissionHUD();
+}
+$('driveBtn').onclick = () => mobility ? (DRIVING ? mobility.walk() : mobility.boardRover()) : enterDrive();
+// Escape is handled by the shared transport pause menu.
+
+/* 自由机位下 WASD 是在飞相机，不能同时开车 —— 否则一按 W
+   车往前冲、相机也往前飞，两件事叠在一起没法用。 */
+const 停车 = { throttle:0, steer:0, brake:1, tc:true };
+
+function stepRover(dt){
+  if(!DRIVING || !ROVER || missionPaused || document.hidden) return;
+  const rawControl = drvIn.update(dt);
+  const ctl = mobility?.driveControl(rawControl,dt) || rawControl;
+  if(scanning && Math.abs(ctl.throttle) > 0.12) cancelScan('车辆移动，扫描已取消。停车后按 E 重新扫描。');
+  if(ctl.camCycle) rig.cycle(ROVER);
+  const 自由 = rig.mode === CAM_MODE.PHOTO;
+  const drive = 自由 || scanning ? 停车 : ctl;
+  ROVER.step(dt, drive, terrainAdapter);
+  ROVER.updateVisuals(dt, drive);
+  rig.update(dt, ROVER, ctl);
+
+  // 仪表
+  const spd = ROVER.speed;
+  let contacts = 0, sink = 0;
+  for(const w of ROVER.wheels){ if(w.contact){ contacts++; sink += w.sink; } }
+  const up = ROVER.up;
+  $('dSpd').textContent = (spd*3.6).toFixed(1)+' km/h';
+  $('dOdo').textContent = ROVER.odo < 1000 ? ROVER.odo.toFixed(0)+' m'
+                                           : (ROVER.odo/1000).toFixed(2)+' km';
+  $('dSlp').textContent = (Math.acos(Math.max(-1,Math.min(1,up.y)))/D2R).toFixed(0)+'°';
+  $('dCon').innerHTML = '<span style="color:'+(contacts<4?'var(--warn)':'var(--good)')+'">'
+                      + contacts + ' / 6</span>';
+  $('dSnk').textContent = contacts ? (sink/contacts*100).toFixed(1)+' cm' : '—';
+  $('dTc').innerHTML = '<span style="color:'+(ctl.tc?'var(--good)':'var(--dim)')+'">'
+                     + (ctl.tc?'开':'关') + '</span>';
+  $('dCam').textContent = rig.modeName;
+  // 跟车/环绕看距离，桅杆/自由看焦段 —— 滚轮在这两组里改的不是同一个量
+  $('dLen').textContent = 自由 || rig.mode === CAM_MODE.MAST
+    ? rig.fov.toFixed(0)+'° 焦段'
+    : rig.dist.toFixed(1)+' m';
+}
+
+/* ============================================================
+   火星任务：用实际行驶完成三个勘测点，再在原着陆区部署基地。
+   任务时钟只消费可见、未暂停的模拟时间；坐标均为着陆点附近的米。
+   ============================================================ */
+const SURVEY = [
+  { id:'soil', number:'01', name:'地基勘测', x:6, z:-69, report:'地表承载勘测已归档。下一站：供能评估。' },
+  { id:'power', number:'02', name:'供能评估', x:44, z:-107, report:'太阳能阵列选址已归档。下一站：通信校准。' },
+  { id:'comms', number:'03', name:'通信校准', x:-14, z:-135, report:'勘测完成。可以在原着陆区部署穹顶基地。' },
+];
+const completed = new Set(JOURNEY ? savedJourney.survey.filter(id => SURVEY.some(s => s.id === id)) : []);
+const SCAN_RADIUS = 18, SCAN_SECONDS = 2, PARK_SPEED = 0.55;
+let scanning = null, navigation = null, routeMap = null;
+let lastMissionPaint = 0, saveElapsed = 0, missionActionsKey = '', landingFinished = false;
+const markerGroups = [];
+const markerProjection = new THREE.Vector3(), cameraDirection = new THREE.Vector3();
+function missionPosition(){ return ROVER?.pos || getJourney()?.rover || { x:6, z:-14 }; }
+function currentSurvey(){ return SURVEY.find(s => !completed.has(s.id)); }
+function distanceTo(point){
+  const pos = missionPosition();
+  return Math.hypot(point.x - pos.x, point.z - pos.z);
+}
+function parked(){ return ROVER && Math.hypot(ROVER.vel.x, ROVER.vel.z) < PARK_SPEED; }
+function canScan(){
+  const point = currentSurvey();
+  return DRIVING && !missionPaused && !document.hidden && !ARRIVE.on &&
+         !scanning && point && distanceTo(point) <= SCAN_RADIUS && parked();
+}
+function saveRover(){
+  if(!JOURNEY || !ROVER) return;
+  const forward = ROVER.forward;
+  const rover = { x:ROVER.pos.x, z:ROVER.pos.z, heading:Math.atan2(forward.x, forward.z), odo:ROVER.odo };
+  if(Object.values(rover).every(Number.isFinite)) updateJourney({ rover });
+}
+function cancelScan(message){
+  if(!scanning) return;
+  scanning = null;
+  if(message) journeyUI?.toast(message);
+  renderMissionHUD();
+}
+function beginScan(){
+  if(!JOURNEY || missionPaused || document.hidden) return;
+  if(!canScan()){
+    if(scanning) return;
+    journeyUI?.toast(!DRIVING ? '先连接 MU-7 遥控。' : !parked() ?
+      '按住空格刹车，停稳后再扫描。' : '驶入当前信标的 18 m 范围，再停车扫描。');
+    return;
+  }
+  const point = currentSurvey();
+  scanning = { point, elapsed:0, x:ROVER.pos.x, z:ROVER.pos.z };
+  renderMissionHUD();
+}
+function deployStation(){
+  if(!JOURNEY || missionPaused || completed.size < SURVEY.length) return;
+  saveRover();
+  drvIn?.setEnabled(false);
+  missionPaused = true;
+  $('fade').classList.add('on');
+  setTimeout(() => { location.href = sceneURL('park', { build:'1' }); }, 720);
+}
+function rescueRover(){
+  if(!ROVER || !DRIVING || missionPaused) return;
+  cancelScan();
+  const forward = ROVER.forward;
+  const heading = Math.atan2(forward.x, forward.z);
+  // 原地扶正，保留里程和已归档数据；救援不推进勘测路线。
+  ROVER.placeAt(ROVER.pos.x, ROVER.pos.z, heading);
+  drvIn.reset();
+  rig.first = true;
+  saveRover();
+  journeyUI.toast('巡视车已原地扶正。勘测数据和里程已保留。');
+  renderMissionHUD();
+}
+function buildSurveyMarkers(){
+  for(const point of SURVEY){
+    const group = new THREE.Group();
+    group.name = 'survey-' + point.id;
+    const ground = terrainY(point.x, point.z, 0.05);
+    group.position.set(point.x, ground, point.z);
+    const material = new THREE.MeshBasicMaterial({ color:0x80f0e6, fog:false });
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.12, 8, 8), material);
+    mast.position.y = 4; group.add(mast);
+    const diamond = new THREE.Mesh(new THREE.OctahedronGeometry(0.7), material);
+    diamond.position.y = 8.5; group.add(diamond);
+    const ringPoints = [];
+    for(let i=0; i<=72; i++){
+      const angle = i / 72 * Math.PI * 2;
+      const x = point.x + Math.cos(angle)*SCAN_RADIUS, z = point.z + Math.sin(angle)*SCAN_RADIUS;
+      ringPoints.push(new THREE.Vector3(x-point.x, terrainY(x,z,0.05)-ground+0.18, z-point.z));
+    }
+    const ringMaterial = new THREE.LineDashedMaterial({ color:0x80f0e6, dashSize:1.2, gapSize:0.8,
+      transparent:true, opacity:0.7, fog:false });
+    const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPoints), ringMaterial);
+    ring.computeLineDistances(); group.add(ring);
+    scene.add(group);
+    const label = document.createElement('div');
+    label.className = 'survey-world-label';
+    label.textContent = point.number + ' · ' + point.name;
+    document.body.append(label);
+    markerGroups.push({ point, group, material, ringMaterial, diamond, label });
+  }
+}
+function renderMissionHUD(){
+  if(!JOURNEY || !journeyUI) return;
+  const point = currentSurvey(), distance = point ? distanceTo(point) : 0;
+  const scanReady = canScan();
+  let title, body;
+  if(ARRIVE.on){ title = '正在接近着陆区'; body = '巡视车与勘测信标正在就位，触地后开始地面任务。'; }
+  else if(!point){
+    title = '勘测完成，部署穹顶基地';
+    body = '3 份勘测数据已归档。建造队将在原着陆区展开基地，可从当前位置下达部署指令。';
+  } else if(scanning){
+    title = '正在扫描 · ' + point.name + ' · ' + Math.floor(scanning.elapsed/SCAN_SECONDS*100) + '%';
+    body = '保持停车 2 秒。踩下油门会中止扫描；暂停时保留当前进度。';
+  } else {
+    title = point.number + ' · ' + point.name;
+    body = !DRIVING ? '连接 MU-7 遥控，沿发光信标逐站勘测。方向指引与路线图会带你找到目标。' :
+      distance > SCAN_RADIUS ? '沿指引驶向信标。进入 18 m 范围后，按住空格刹车，按 E 扫描。' :
+      !parked() ? '已进入勘测范围。按住空格刹车，停稳后按 E 扫描。' :
+      '已进入勘测范围。按 E 或点击「扫描」，保持停车 2 秒。';
+  }
+  journeyUI.setObjective({ kicker:'地面勘测 · ' + completed.size + ' / 3 已归档', title, body,
+    progress:(completed.size + (scanning ? scanning.elapsed / SCAN_SECONDS : 0)) / SURVEY.length });
+  const actions = [
+    { id:'drive', label:driveLoading ? '巡视车展开中…' : DRIVING ? '结束遥控 · F' : mobility?.walking ? '遥控 MU-7' : '连接 MU-7 遥控',
+      primary:!DRIVING && !!point, disabled:driveLoading || ARRIVE.on,
+      onClick:() => mobility ? (DRIVING ? mobility.walk() : mobility.boardRover()) : enterDrive() },
+  ];
+  if(point) actions.push({ id:'scan', label:scanning ? '扫描中…' : '扫描 · E',
+    primary:true, disabled:!scanReady, onClick:beginScan });
+  else actions.push({ id:'deploy', label:'在着陆区部署基地 →', primary:true, onClick:deployStation });
+  if(DRIVING) actions.push({ id:'rescue', label:'扶正救援', onClick:rescueRover });
+  const key = JSON.stringify(actions.map(({id,label,disabled,primary}) => ({id,label,disabled,primary})));
+  if(key !== missionActionsKey){ missionActionsKey = key; journeyUI.setActions(actions); }
+  journeyUI.setTelemetry([
+    { label:'巡视车', value:DRIVING ? (Math.abs(ROVER.speed)*3.6).toFixed(1) + ' km/h' : '已停靠' },
+    { label:'行驶里程', value:Math.floor(ROVER?.odo || getJourney()?.rover?.odo || 0) + ' m' },
+    { label:point ? '当前信标' : '建站位置', value:point ? Math.ceil(distance) + ' m · ' + point.name : '原着陆区' },
+    { label:'相机', value:DRIVING ? rig.modeName + ' · C 切换' : mobility?.walking ? mobility.astronaut.view : '着陆点全景' },
+  ]);
+}
+function updateNavigation(now){
+  if(!navigation || !routeMap) return;
+  const point = currentSurvey(), pos = missionPosition();
+  let direction = '↑', instruction = '';
+  if(point){
+    const forward = ROVER?.forward;
+    const heading = forward ? Math.atan2(forward.x, forward.z) : Math.PI;
+    let turn = Math.atan2(point.x-pos.x, point.z-pos.z)-heading;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    if(Math.abs(turn) > 2.55){ direction = '↶'; instruction = '目标在车后 · 调头'; }
+    else if(turn < -0.24){ direction = '→'; instruction = '向车头右侧转向'; }
+    else if(turn > 0.24){ direction = '←'; instruction = '向车头左侧转向'; }
+    else instruction = '车头前方';
+    if(distanceTo(point) <= SCAN_RADIUS){ direction = '◎'; instruction = scanning ? '扫描中 · 保持停车' : '已到达 · 空格刹车 / E 扫描'; }
+    navigation.textContent = direction + '  ' + point.number + ' ' + point.name + '  ·  ' + Math.ceil(distanceTo(point)) + ' m  ·  ' + instruction;
+  } else navigation.textContent = '✓  勘测已完成 · 原着陆区已开放基地部署';
+  navigation.hidden = ARRIVE.on || missionPaused;
+  routeMap.hidden = ARRIVE.on || missionPaused;
+  const ctx = routeMap.getContext('2d');
+  const originX = 76, originY = 154, scale = 0.79;
+  const px = x => originX+x*scale, pz = z => originY+z*scale;
+  ctx.clearRect(0,0,156,174);
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = '#abc4c8'; ctx.fillText('勘测路线 · 北 ↑', 10,17);
+  ctx.strokeStyle = 'rgba(137,200,203,.36)'; ctx.setLineDash([3,4]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(px(6),pz(-14));
+  for(const s of SURVEY) ctx.lineTo(px(s.x),pz(s.z));
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle='#f5b76f'; ctx.strokeRect(px(0)-3,pz(0)-3,6,6);
+  for(const s of SURVEY){
+    ctx.fillStyle = completed.has(s.id) ? '#7ee0a8' : s === point ? '#b8fff6' : '#738d92';
+    ctx.beginPath(); ctx.arc(px(s.x),pz(s.z),s === point ? 4 : 3,0,Math.PI*2); ctx.fill();
+    ctx.fillText(s.number,px(s.x)+7,pz(s.z)+3);
+  }
+  const mapX = Math.max(7,Math.min(149,px(pos.x))), mapZ=Math.max(28,Math.min(162,pz(pos.z)));
+  const forward = ROVER?.forward || {x:0,z:-1};
+  ctx.save(); ctx.translate(mapX,mapZ); ctx.rotate(Math.atan2(forward.x,-forward.z));
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(0,-6); ctx.lineTo(4,5); ctx.lineTo(0,3); ctx.lineTo(-4,5);ctx.closePath();ctx.fill();ctx.restore();
+  camera.getWorldDirection(cameraDirection);
+  for(const m of markerGroups){
+    const done = completed.has(m.point.id), active = m.point === point;
+    m.material.color.setHex(done ? 0x7ee0a8 : active ? 0xa8fff0 : 0x80a6ad);
+    m.ringMaterial.color.copy(m.material.color);
+    m.ringMaterial.opacity = active ? 0.75 : 0.25;
+    m.diamond.rotation.y = REDUCED ? 0 : now * 0.00055;
+    markerProjection.copy(m.group.position).y += 10.3;
+    const inFront = markerProjection.clone().sub(camera.position).dot(cameraDirection) > 0;
+    markerProjection.project(camera);
+    const visible = inFront && markerProjection.z < 1 && Math.abs(markerProjection.x) < 0.91 && Math.abs(markerProjection.y) < 0.75;
+    m.label.hidden = !visible || missionPaused || ARRIVE.on;
+    m.label.classList.toggle('is-active',active);
+    m.label.classList.toggle('is-done',done);
+    m.label.textContent = (done ? '✓ ' : '') + m.point.number + ' · ' + m.point.name + ' · ' + Math.ceil(distanceTo(m.point)) + ' m';
+    m.label.style.transform = 'translate(-50%, -100%) translate(' + (markerProjection.x*.5+.5)*innerWidth + 'px,' + (-markerProjection.y*.5+.5)*innerHeight + 'px)';
+  }
+}
+function stepSurvey(dt, now){
+  if(!JOURNEY || !journeyUI) return;
+  if(scanning && dt > 0){
+    const moved = Math.hypot(ROVER.pos.x-scanning.x,ROVER.pos.z-scanning.z) > 0.6;
+    if(!DRIVING || !parked() || moved || distanceTo(scanning.point) > SCAN_RADIUS){
+      cancelScan('车辆移动，扫描已取消。停车后按 E 重新扫描。');
+    } else {
+      scanning.elapsed += dt;
+      if(scanning.elapsed >= SCAN_SECONDS){
+        const point = scanning.point;
+        completed.add(point.id); scanning = null;
+        updateJourney({ survey:SURVEY.filter(s => completed.has(s.id)).map(s => s.id) });
+        saveRover(); journeyUI.toast(point.report); renderMissionHUD();
+      }
+    }
+  }
+  saveElapsed += dt;
+  if(saveElapsed >= 2.5){ saveElapsed=0; saveRover(); }
+  if(now-lastMissionPaint > 150){ lastMissionPaint=now; renderMissionHUD(); }
+  updateNavigation(now);
+}
+function finishLanding(){
+  if(!JOURNEY || !journeyUI || landingFinished) return;
+  landingFinished = true;
+  updateJourney({ landed:true, site:{ lat:SITE.lat, lon:SITE.lon, name:SITE.name } });
+  renderMissionHUD();
+  if(savedJourney.landed && savedJourney.rover){ queueMicrotask(()=>mobility.boardRover()); return; }
+  journeyUI.showBrief({
+    title:'触地。现在，给第一座基地选址。',
+    body:'遥控无人 MU-7 沿三座信标完成地基、供能与通信勘测。W/S 前进倒车，A/D 转向；驶入信标 18 m 内，按空格停稳，再按 E 扫描。每次扫描约 2 秒，数据会自动保存。完成后，将在原着陆区部署基地。',
+    button:'连接遥控 · 开始勘测', onStart:() => mobility.boardRover(),
+  });
+}
+function initJourney(){
+  journeyUI = mountJourneyUI({ scene:'surface', title:'地面勘测', onPause:paused => {
+    missionPaused = paused;
+    mobility?.setPaused(paused);
+    drag = false;
+    drvIn?.setEnabled(DRIVING && !paused && !document.hidden);
+    if(paused) saveRover();
+  }});
+  navigation = document.createElement('div'); navigation.className='survey-navigation';
+  navigation.setAttribute('aria-live','off'); document.body.append(navigation);
+  routeMap = document.createElement('canvas'); routeMap.className='survey-route-map';
+  routeMap.width=156; routeMap.height=174;
+  routeMap.setAttribute('aria-label','勘测路线图：白色箭头为巡视车，01 至 03 为勘测点，橙色方框为着陆点。');
+  document.body.append(routeMap);
+  buildSurveyMarkers();
+  renderMissionHUD();
+  if(!ARRIVE.on) finishLanding();
+}
+addEventListener('keydown', e => {
+  if(!JOURNEY || e.repeat || e.ctrlKey || e.metaKey || e.altKey ||
+     e.target.closest?.('input,textarea,select,[contenteditable=true]')) return;
+  if(e.code === 'KeyE' && !mobility?.active && !mobility?.walking && (!rig || rig.mode !== CAM_MODE.PHOTO)){
+    e.preventDefault(); beginScan();
+  }
+});
+addEventListener('pagehide', saveRover);
+document.addEventListener('visibilitychange', () => {
+  drag = false;
+  drvIn?.setEnabled(DRIVING && !document.hidden && !missionPaused);
+  if(document.hidden) saveRover();
+  // 不把后台经过的时间计入扫描、降落或车辆物理。
+  last = performance.now();
+});
+
+/* ============================================================
+   主循环
+   ============================================================ */
+let FPS = 60, DPRCAP = JOURNEY && getSettings().quality === 'low' ? 1 : 1.6, last = performance.now();
+function resize(){
+  const dpr = Math.min(devicePixelRatio||1, DPRCAP);
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+addEventListener('cosmos:quality', event => {
+  if(!JOURNEY) return;
+  DPRCAP = event.detail === 'low' ? 1 : 1.6;
+  resize();
+});
+
+/* 落地动画：从 520 m 高、俯角 38° 一路压到眼高 1.75 m。
+   2.6 秒，末段用 1−(1−t)³ 缓出 —— 匀速下降会在最后一刻显得像穿模，
+   减速触地才有「落下来」的感觉。 */
+const ARRIVE = { on: !SURVIVAL && qs0.get('from') === 'orbit' && !(JOURNEY && savedJourney.landed), elapsed: 0, ms: REDUCED ? 1 : 2600,
+                 eye0: 520, pitch0: -38 };
+function stepArrival(dt){
+  if(!ARRIVE.on) return;
+  ARRIVE.elapsed += dt * 1000;
+  const t = Math.min(1, ARRIVE.elapsed/ARRIVE.ms);
+  const e = 1 - Math.pow(1-t, 3);
+  const v = VIEWS[viewName];
+  CAM.eye   = ARRIVE.eye0   + (v.eye   - ARRIVE.eye0)*e;
+  CAM.pitch = ARRIVE.pitch0 + (v.pitch - ARRIVE.pitch0)*e;
+  applyCamera();
+  if(t >= 1){ ARRIVE.on = false; finishLanding(); }
+}
+
+function loop(now){
+  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  const activeDt = missionPaused || document.hidden ? 0 : dt;
+  stepArrival(activeDt);
+  if(dt > 0){
+    FPS = FPS*0.92 + (1/Math.max(dt,1e-4))*0.08;
+    if(FPS < 32 && DPRCAP > 0.8){ DPRCAP = Math.max(0.8, DPRCAP-0.04); resize(); }
+  }
+  if(dust && dust.visible && !REDUCED){
+    const p = dust.geometry.attributes.position, base = dust.geometry.userData.base,
+          ph = dust.geometry.userData.phase, t = now*0.001;
+    for(let i=0; i<ph.length; i++){
+      p.array[i*3]   = base[i*3]   + Math.sin(t*0.21 + ph[i])*0.9;
+      p.array[i*3+1] = base[i*3+1] + Math.sin(t*0.13 + ph[i]*1.7)*0.35;
+      p.array[i*3+2] = base[i*3+2] + Math.cos(t*0.17 + ph[i]*0.8)*0.9;
+    }
+    p.needsUpdate = true;
+  }
+  stepRover(activeDt);
+  mobility?.update(activeDt, now);
+  stepSurvey(activeDt, now);
+  sky.position.copy(camera.position);
+  renderer.render(scene, camera);
+  telemetry();
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   启动
+   ============================================================ */
+$('fovLab').textContent  = CAM.fov+'°';
+$('azLab').textContent   = SUN.az+'°';
+$('elLab').textContent   = SUN.el+'°';
+$('hazeLab').textContent = SUN.haze+'%';
+
+/* 整个画面状态都能从 URL 复原：?view=floor&az=250&el=18&haze=24&fov=38
+   验收截图靠的就是这个 —— 用鼠标点出来的帧没法保证两次一样。 */
+const qs = qs0;
+const want = qs.get('view');
+const numArg = (k, lo, hi) => {
+  const v = parseFloat(qs.get(k));
+  return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : null;
+};
+resize();
+applySun();
+
+requestAnimationFrame(async () => {                       // 让「正在生成地形」先画出来
+  const t0 = performance.now();
+  setView(VIEWS[want] ? want : 'floor');       // 首次进来 terrainMesh 为空，setView 内部会建
+
+  const qAz = numArg('az',0,359), qEl = numArg('el',2,70), qHz = numArg('haze',0,60);
+  const qFov = numArg('fov',16,72), qYaw = numArg('yaw',-360,360), qPit = numArg('pitch',-85,85);
+  if(qAz !== null){ SUN.az = qAz; $('az').value = qAz; $('azLab').textContent = qAz+'°'; }
+  if(qEl !== null){ SUN.el = qEl; $('el').value = qEl; $('elLab').textContent = qEl+'°'; }
+  if(qHz !== null){ SUN.haze = qHz; $('haze').value = qHz; $('hazeLab').textContent = qHz+'%'; }
+  if(qFov !== null){ CAM.fov = qFov; $('fov').value = qFov; $('fovLab').textContent = qFov+'°'; }
+  if(qYaw !== null) CAM.yaw = qYaw;
+  if(qPit !== null) CAM.pitch = qPit;
+  applySun(); applyCamera();
+  window.__SCENE_DIAGNOSTICS__ = {
+    site: SITE, seeds: { terrain:SEED_TERRAIN, rocks:SEED_ROCK, dust:SEED_DUST },
+    grid: { NT, NR, R0, RMAX, growth:+GROWTH.toFixed(4) },
+    counts: STATS,
+    camera: () => ({ view:viewName, ...CAM, pos:camera.position.toArray().map(v=>+v.toFixed(2)) }),
+    sun: () => ({ ...SUN, dir: sunDir().toArray().map(v=>+v.toFixed(3)) }),
+    buildMs: +(performance.now()-t0).toFixed(0)
+  };
+  $('busy').style.display = 'none';
+  if(ARRIVE.on){                                  // 从轨道落下来：先黑屏，再化开
+    $('fade').classList.add('on');
+    requestAnimationFrame(() => $('fade').classList.remove('on'));
+  }
+  if(JOURNEY) initJourney();
+  if(SURVIVAL){
+    try { const {mountArrival}=await import('../src/survival/arrival.js'); mobility=mountArrival({scene,camera,canvas,heightAt:(x,z)=>terrainY(x,z,.05)}); }
+    catch(error){ console.error(error); $('err').textContent='生存场景加载失败：'+error.message; $('err').style.display='block'; }
+  } else if(!LOCKED) initMobility();
+  requestAnimationFrame(loop);
+});
+
+function initMobility(){
+  mobility = mountMobility({ kind:'surface', site:SITE, scene, camera, canvas,
+    heightAt:(x,z)=>terrainY(x,z,.05),
+    rover:{model:()=>ROVER,cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
+      position:()=>ROVER?{x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)}:{x:6,z:-14,heading:Math.PI},
+      ensure:async()=>{if(!ROVER)await enterDrive();},enter:enterDrive,exit:exitDrive},
+    getPlayer:()=>ROVER ? {x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)} : {x:6,z:-14,heading:Math.PI},
+    getLandmarks:()=>[
+      {id:'landing',name:'着陆区 / 基地部署点',x:0,z:0,type:'着陆点'},
+      ...(JOURNEY ? SURVEY.map(p=>({...p,type:'勘测信标'})) : []),
+    ],
+    onBoard:()=>{cancelScan();exitDrive();drvIn?.setEnabled(false);},
+    onBlock:value=>{missionPaused=value||!!journeyUI?.paused;drvIn?.setEnabled(DRIVING&&!missionPaused);},
+    onOrbit:({lat,lon,target})=>{
+      saveRover();const url=new URL('mars-orbit.html',location.href);
+      url.searchParams.set('flight','1');url.searchParams.set('lat',target?.lat??lat);url.searchParams.set('lon',target?.lon??lon);
+      if(target)url.searchParams.set('target','1');
+      if(JOURNEY)url.searchParams.set('journey','1');
+      location.href=url.href;
+    },
+    notify:message=>journeyUI?.toast(message),
+  });
+  window.__MOBILITY = mobility;
+  mobility.setPaused(missionPaused);
+}
+</script>
+</body>
+</html>

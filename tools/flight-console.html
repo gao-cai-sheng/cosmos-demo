@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 航行操作台</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  body{ padding:16px; }
+
+  .top{ display:flex; justify-content:space-between; align-items:flex-end;
+        border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:14px; }
+  .top h1{ margin:0; font-size:14px; letter-spacing:.2em; color:var(--cy); font-weight:600; }
+  .top .sub{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin-top:3px; }
+  .top .right{ text-align:right; color:var(--dim); font-size:10px; letter-spacing:.12em; }
+
+  .grid{ display:grid; grid-template-columns:minmax(340px,1.15fr) minmax(0,1fr) minmax(0,1fr);
+         gap:14px; align-items:start; }
+  @media(max-width:1240px){ .grid{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .plotbox{ grid-column:1/-1; } }
+  @media(max-width:760px){ .grid{ grid-template-columns:minmax(0,1fr); } }
+  .grid > *{ min-width:0; }
+
+  .card{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:12px; min-width:0; }
+  .card h2{ margin:0 0 10px; font-size:10px; letter-spacing:.16em; color:var(--dim); font-weight:500;
+            display:flex; justify-content:space-between; }
+  .card h2 b{ color:var(--cy); font-weight:500; }
+
+  canvas{ display:block; width:100%; height:auto; }
+
+  .row{ display:flex; justify-content:space-between; gap:10px; padding:3px 0; flex-wrap:wrap; }
+  .row span{ color:var(--dim); flex:0 1 auto; }
+  .row b{ font-weight:500; text-align:right; flex:0 1 auto; }
+  .row.bad b{ color:var(--bad); }
+  .row.warn b{ color:var(--warn); }
+  .row.good b{ color:var(--good); }
+
+  /* Δv 预算条 */
+  .bar{ height:26px; display:flex; border:1px solid var(--line); margin:8px 0 4px; position:relative; }
+  .bar i{ display:block; height:100%; }
+  .bar .cap{ position:absolute; top:-1px; bottom:-1px; border-right:2px solid var(--ink); }
+  .barlab{ display:flex; flex-wrap:wrap; gap:10px; color:var(--dim); font-size:10px; }
+  .barlab s{ text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  .barlab em{ width:8px; height:8px; display:inline-block; font-style:normal; }
+
+  .ctl{ margin-top:12px; }
+  .ctl label{ display:flex; justify-content:space-between; color:var(--dim);
+              font-size:10px; letter-spacing:.12em; margin-bottom:4px; }
+  .ctl label b{ color:var(--cy); font-weight:500; }
+  input[type=range]{ width:100%; accent-color:var(--cy); }
+
+  .verdict{ margin-top:12px; padding:10px; font-size:11px; line-height:1.6;
+            border-left:2px solid var(--good); background:rgba(126,224,168,.06); color:#bfe6d2; }
+  .verdict.no{ border-left-color:var(--bad); background:rgba(255,95,86,.07); color:#ffd0cc; }
+  .verdict.risk{ border-left-color:var(--warn); background:rgba(245,183,111,.07); color:#f2dcc0; }
+  .verdict b{ display:block; letter-spacing:.14em; margin-bottom:4px; }
+
+  .uplink{ margin-top:14px; border:1px solid rgba(245,183,111,.30); background:rgba(245,183,111,.05);
+           padding:9px 10px; color:#d8c3a2; font-size:10.5px; line-height:1.6; }
+  .uplink b{ color:var(--warn); letter-spacing:.14em; display:block; margin-bottom:3px; }
+
+  .burns{ margin-top:6px; }
+  .burn{ display:grid; grid-template-columns:16px 1fr auto; gap:8px; padding:5px 0;
+         border-bottom:1px dashed rgba(111,227,245,.10); align-items:baseline; }
+  .burn u{ text-decoration:none; color:var(--dim); }
+  .burn i{ font-style:normal; color:var(--dim); font-size:10px; }
+  .foot{ margin-top:14px; color:var(--dim); font-size:10px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>航行操作台</h1>
+    <div class="sub">MU-7 CASSIOPEIA · 承包商编号 D-4471 · 转移方案草稿</div>
+  </div>
+  <div class="right">
+    月球 阿那克萨哥拉 → 火星<br>
+    导航计算机 · 塞勒涅董事会配发 · 固件 2.4.1
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- ============ 轨道图 ============ -->
+  <div class="card plotbox">
+    <h2>转移轨道 <b id="sweepLab">—</b></h2>
+    <canvas id="plot" width="880" height="620"></canvas>
+    <div class="foot" id="plotFoot">—</div>
+  </div>
+
+  <!-- ============ Δv 预算 ============ -->
+  <div>
+    <div class="card">
+      <h2>Δv 预算 <b id="dvSum">—</b></h2>
+      <div class="bar" id="bar">
+        <i style="background:#6fe3f5" id="s1"></i>
+        <i style="background:#4ea9c4" id="s2"></i>
+        <i style="background:#f5b76f" id="s3"></i>
+        <i style="background:#7ee0a8" id="s4"></i>
+        <div class="cap" id="cap"></div>
+      </div>
+      <div class="barlab">
+        <s><em style="background:#6fe3f5"></em>逃逸</s>
+        <s><em style="background:#4ea9c4"></em>中途修正</s>
+        <s><em style="background:#f5b76f"></em>减速捕获</s>
+        <s><em style="background:#7ee0a8"></em>着陆余量</s>
+        <s><em style="background:#cfe6ee"></em>本船上限</s>
+      </div>
+      <div style="margin-top:10px" id="dvRows"></div>
+
+      <div class="ctl">
+        <label>载荷质量 <b id="payLab">—</b></label>
+        <input type="range" id="pay" min="0" max="150" step="5" value="90" />
+      </div>
+      <div class="ctl">
+        <label>航程时长 <b id="tLab">—</b></label>
+        <input type="range" id="days" min="45" max="300" step="1" value="150" />
+      </div>
+
+      <div class="verdict" id="verdict"></div>
+    </div>
+
+    <div class="uplink">
+      <b>上行链路</b>
+      本航线草案将在提交时同步至董事会调度网。已上报 11 项遥测。
+    </div>
+  </div>
+
+  <!-- ============ 船体额定 + 合同 ============ -->
+  <div>
+    <div class="card">
+      <h2>船体额定值 <b id="rateVerdict">—</b></h2>
+      <div id="rates"></div>
+      <div class="foot">额定值来自二十二年前的验收报告。<br>此后未做过复检。</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>合同 <b>ANX-77</b></h2>
+      <div id="contract"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>点火计划</h2>
+      <div class="burns" id="burns"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   COSMOS 航行操作台 · 原型
+   零依赖。核心是一个四方互相挤压的决策：
+     载荷越多 → 收益越高，但 Δv 上限越低（火箭方程）
+     航程越短 → 赶得上死线，但需要的 Δv 越高
+     两头一挤，还要过船体额定值这一关
+   ============================================================ */
+
+/* ---- 船 ---- */
+const SHIP = {
+  dry: 180,        // t，空船
+  fuel: 220,       // t，满载燃料
+  isp: 7000,       // s，聚变级
+  thrust: 240,     // kN
+  dutyRated: 18,   // h，额定连续输出
+  gLimit: 0.78,    // m/s²，结构额定加速度
+  thermRated: 640  // 反应堆额定热负荷指数
+};
+
+/* ---- 合同 ---- */
+const CONTRACT = {
+  id:'ANX-77', deadline:96, minPayload:60,
+  ratePerTon: 1.9        // 万单位／吨
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ---- 需求模型 ----
+   航程越短，需要的 Δv 越高。用的是一条“越急越贵”的曲线，
+   不是真实的兰伯特解，但增长趋势是对的，够用来做设计决策。 */
+function dvRequired(days) {
+  const total = 12 + 2400 / days;              // km/s
+  return {
+    escape: total * 0.34,
+    correct: total * 0.07,
+    capture: total * 0.47,
+    reserve: total * 0.12,
+    total
+  };
+}
+
+/* ---- 火箭方程 ---- */
+function dvCapacity(payload) {
+  const m1 = SHIP.dry + payload;
+  const m0 = m1 + SHIP.fuel;
+  return SHIP.isp * 9.80665 * Math.log(m0 / m1) / 1000;   // km/s
+}
+
+/* ============================================================
+   轨道图
+   ============================================================ */
+const cv = $('plot'), cx = cv.getContext('2d');
+
+function drawPlot(days) {
+  const W = cv.width, H = cv.height;
+  const ox = W * 0.46, oy = H * 0.54;
+  cx.clearRect(0, 0, W, H);
+
+  const r1 = 150, r2 = 250;
+
+  /* 背景网格 */
+  cx.strokeStyle = 'rgba(111,227,245,.055)';
+  cx.lineWidth = 1;
+  for (let i = 0; i < W; i += 40) { cx.beginPath(); cx.moveTo(i, 0); cx.lineTo(i, H); cx.stroke(); }
+  for (let i = 0; i < H; i += 40) { cx.beginPath(); cx.moveTo(0, i); cx.lineTo(W, i); cx.stroke(); }
+
+  /* 太阳 */
+  cx.fillStyle = '#fff6e0';
+  cx.beginPath(); cx.arc(ox, oy, 5, 0, 7); cx.fill();
+  cx.strokeStyle = 'rgba(255,246,224,.22)';
+  cx.beginPath(); cx.arc(ox, oy, 13, 0, 7); cx.stroke();
+
+  /* 两条轨道 */
+  const orbit = (r, dash, col) => {
+    cx.setLineDash(dash); cx.strokeStyle = col; cx.lineWidth = 1;
+    cx.beginPath(); cx.arc(ox, oy, r, 0, 7); cx.stroke(); cx.setLineDash([]);
+  };
+  orbit(r1, [3,4], 'rgba(207,230,238,.30)');
+  orbit(r2, [3,4], 'rgba(245,183,111,.30)');
+
+  /* 转移弧：航程越短，扫过的角度越小（弹道越“直”） */
+  const sweep = Math.max(38, Math.min(190, 190 * (days / 260))) * Math.PI / 180;
+  const a0 = Math.PI * 0.92;
+
+  cx.strokeStyle = '#6fe3f5'; cx.lineWidth = 2;
+  cx.beginPath();
+  const N = 220;
+  for (let i = 0; i <= N; i++) {
+    const f = i / N;
+    const s = f * f * (3 - 2 * f);                  // 平滑过渡
+    const r = r1 + (r2 - r1) * s;
+    const th = a0 + sweep * f;
+    const x = ox + Math.cos(th) * r, y = oy + Math.sin(th) * r;
+    i ? cx.lineTo(x, y) : cx.moveTo(x, y);
+  }
+  cx.stroke();
+
+  /* 出发 / 抵达标记 */
+  const mark = (th, r, col, label, sub) => {
+    const x = ox + Math.cos(th) * r, y = oy + Math.sin(th) * r;
+    cx.fillStyle = col;
+    cx.beginPath(); cx.arc(x, y, 5, 0, 7); cx.fill();
+    cx.strokeStyle = col; cx.globalAlpha = .35;
+    cx.beginPath(); cx.arc(x, y, 12, 0, 7); cx.stroke();
+    cx.globalAlpha = 1;
+    cx.font = '11px ui-monospace,Menlo,monospace';
+    cx.fillStyle = col;
+    cx.fillText(label, x + 16, y + 2);
+    cx.fillStyle = 'rgba(111,136,148,.9)';
+    cx.font = '10px ui-monospace,Menlo,monospace';
+    cx.fillText(sub, x + 16, y + 15);
+  };
+  mark(a0, r1, '#cfe6ee', '月球 · 出发', 'T+0');
+  mark(a0 + sweep, r2, '#f5b76f', '火星 · 捕获', 'T+' + days + ' 天');
+
+  /* 影响球示意 */
+  const ax = ox + Math.cos(a0 + sweep) * r2, ay = oy + Math.sin(a0 + sweep) * r2;
+  cx.setLineDash([2,3]); cx.strokeStyle = 'rgba(245,183,111,.35)';
+  cx.beginPath(); cx.arc(ax, ay, 34, 0, 7); cx.stroke(); cx.setLineDash([]);
+  cx.fillStyle = 'rgba(111,136,148,.75)';
+  cx.font = '9px ui-monospace,Menlo,monospace';
+  cx.fillText('影响球', ax - 18, ay + 48);
+
+  /* 图例 */
+  cx.fillStyle = 'rgba(111,136,148,.8)';
+  cx.font = '10px ui-monospace,Menlo,monospace';
+  cx.fillText('日心黄道投影 · 示意', 14, H - 14);
+
+  $('sweepLab').textContent = '扫过 ' + Math.round(sweep * 180 / Math.PI) + '°';
+  $('plotFoot').textContent = days < 90
+    ? '弹道近乎直线 —— 这不是省力的走法，是硬顶着太阳引力穿过去。'
+    : days < 180
+      ? '折中弹道。多数承包商走这条。'
+      : '接近最省力的走法。慢，但船受得住。';
+}
+
+/* ============================================================
+   刷新
+   ============================================================ */
+function update() {
+  const payload = +$('pay').value;
+  const days = +$('days').value;
+
+  const need = dvRequired(days);
+  const cap = dvCapacity(payload);
+
+  $('payLab').textContent = payload + ' t';
+  $('tLab').textContent = days + ' 天';
+
+  /* ---- 预算条 ---- */
+  const scale = Math.max(cap, need.total) * 1.08;
+  const pct = (v) => (v / scale * 100).toFixed(2) + '%';
+  $('s1').style.width = pct(need.escape);
+  $('s2').style.width = pct(need.correct);
+  $('s3').style.width = pct(need.capture);
+  $('s4').style.width = pct(need.reserve);
+  $('cap').style.left = (cap / scale * 100).toFixed(2) + '%';
+  $('dvSum').textContent = need.total.toFixed(1) + ' / ' + cap.toFixed(1) + ' km/s';
+
+  const over = need.total - cap;
+  $('dvRows').innerHTML =
+    row('逃逸', need.escape.toFixed(1) + ' km/s') +
+    row('中途修正', need.correct.toFixed(1) + ' km/s') +
+    row('减速捕获', need.capture.toFixed(1) + ' km/s') +
+    row('着陆余量', need.reserve.toFixed(1) + ' km/s') +
+    row('本船上限', cap.toFixed(1) + ' km/s', 'good') +
+    row('缺口', (over > 0 ? '+' : '') + over.toFixed(1) + ' km/s', over > 0 ? 'bad' : 'good');
+
+  /* ---- 船体额定 ---- */
+  const wetAvg = SHIP.dry + payload + SHIP.fuel * 0.5;
+  const accel = SHIP.thrust / wetAvg;          // kN/t 正好等于 m/s²
+  const burnH = need.total * 1000 / accel / 3600;
+  const therm = Math.round(burnH * 26 + need.total * 3.1);
+
+  const dutyBad = burnH > SHIP.dutyRated;
+  const accBad = accel > SHIP.gLimit;
+  const thermBad = therm > SHIP.thermRated;
+  const rateFails = [dutyBad, accBad, thermBad].filter(Boolean).length;
+
+  $('rates').innerHTML =
+    row('连续输出', burnH.toFixed(1) + ' h / 额定 ' + SHIP.dutyRated + ' h', dutyBad ? 'bad' : 'good') +
+    row('峰值加速度', accel.toFixed(2) + ' / 额定 ' + SHIP.gLimit + ' m/s²', accBad ? 'bad' : 'good') +
+    row('热负荷指数', therm + ' / 额定 ' + SHIP.thermRated, thermBad ? 'bad' : 'good') +
+    row('总质量', (SHIP.dry + payload + SHIP.fuel) + ' t') +
+    row('单向光行时', lightTime(days) + ' · 抵达时', 'warn');
+  $('rateVerdict').textContent = rateFails ? rateFails + ' 项超限' : '全部在额定内';
+  $('rateVerdict').style.color = rateFails ? 'var(--bad)' : 'var(--good)';
+
+  /* ---- 合同 ---- */
+  const late = days > CONTRACT.deadline;
+  const light = payload < CONTRACT.minPayload;
+  const pay = (payload * CONTRACT.ratePerTon).toFixed(1);
+  $('contract').innerHTML =
+    row('目的地', '火星 · 北纬 22 号点') +
+    row('交付物', '晶格生长原料') +
+    row('最低载荷', CONTRACT.minPayload + ' t', light ? 'bad' : 'good') +
+    row('死线', CONTRACT.deadline + ' 天', late ? 'bad' : 'good') +
+    row('结算', pay + ' 万', 'good') +
+    row('逾期罚金', late ? '全额扣除' : '不适用', late ? 'bad' : '');
+
+  /* ---- 点火计划 ---- */
+  $('burns').innerHTML = [
+    ['01','脱离环月轨道', need.escape, 'T+0'],
+    ['02','中途修正', need.correct, 'T+' + Math.round(days * 0.42) + ' 天'],
+    ['03','减速捕获', need.capture, 'T+' + (days - 1) + ' 天'],
+    ['04','进入 / 着陆', need.reserve, 'T+' + days + ' 天']
+  ].map(([n, name, dv, t]) =>
+    `<div class="burn"><u>${n}</u><span>${name}<i style="display:block">${t}</i></span>
+     <b>${dv.toFixed(1)} km/s</b></div>`).join('');
+
+  /* ---- 裁决 ---- */
+  const v = $('verdict');
+  if (over > 0) {
+    v.className = 'verdict no';
+    v.innerHTML = '<b>方案不可行</b>燃料不够。要么减载荷，要么把航程放长 —— 但死线在 '
+      + CONTRACT.deadline + ' 天。这两件事没法同时满足的时候，就是你该决定要不要越界的时候。';
+  } else if (late) {
+    v.className = 'verdict no';
+    v.innerHTML = '<b>赶不上死线</b>燃料够，时间不够。逾期罚金全额扣除，这趟白干。';
+  } else if (light) {
+    v.className = 'verdict risk';
+    v.innerHTML = '<b>载荷不足</b>低于合同最低量，对方有权拒收。跑一趟只拿罚金。';
+  } else if (rateFails) {
+    v.className = 'verdict risk';
+    v.innerHTML = '<b>可以飞，但船不该这么飞</b>数字上过得去，' + rateFails
+      + ' 项超出额定值。超限不会当场炸，只是把损耗算在以后 —— 而额定值是二十二年前测的。';
+  } else {
+    v.className = 'verdict';
+    v.innerHTML = '<b>方案可行</b>燃料、死线、载荷、船体额定全部满足。这种情况不常有。';
+  }
+
+  drawPlot(days);
+}
+
+function row(k, val, cls) {
+  return '<div class="row' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + val + '</b></div>';
+}
+function lightTime(days) {
+  // 航程越长跑得越远，抵达时的单向光行时越大。示意值。
+  const min = 3 + days / 300 * 17;
+  return min.toFixed(1) + ' 分';
+}
+
+$('pay').oninput = update;
+$('days').oninput = update;
+update();
+</script>
+</body>
+</html>

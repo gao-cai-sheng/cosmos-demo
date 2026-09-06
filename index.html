@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#091317">
+  <title>COSMOS · 火星先遣计划</title>
+  <link rel="stylesheet" href="src/journey/home.css">
+</head>
+<body>
+  <main class="mission-home">
+    <div class="home-world" aria-hidden="true"></div>
+    <header class="home-header"><a class="wordmark" href="index.html">COSMOS</a><span>火星先遣计划</span><a href="moon.html">月球档案 ↗</a></header>
+    <section class="home-copy">
+      <p class="home-label">MU-7 CASSIOPEIA · 独立勘探任务</p>
+      <h1>在荒原上，<br>留下一处灯火。</h1>
+      <p class="home-intro">从轨道选址，到第一座穹顶亮起。驾驶、勘测、飞行，在火星建立你的先遣站。</p>
+      <a class="home-survival" id="survival-start" href="tools/mars-vista.html?survival=1"><small>生存开局 · 第 01 步</small><strong>检查物资，准备出舱 <span>↗</span></strong><em>宇航服自检 / 货物核对 / 应急退路</em></a>
+      <div class="home-actions"><button id="resume" hidden>继续探索</button><button id="start" class="primary">开始火星任务 <span>↗</span></button></div>
+      <p class="save-note" id="save-note">进度会自动保存在这台设备上。</p>
+    </section>
+    <aside class="home-signal"><span>目的地</span><strong>科普剌忒斯谷地</strong><p>13.375°S · 300.125°E</p><i></i><small>先从一次着陆开始。</small></aside>
+    <footer class="home-footer">
+      <ol class="home-sequence"><li><span>01</span> 在轨选址</li><li><span>02</span> 地表勘测</li><li><span>03</span> 穹顶建设</li><li><span>04</span> 驻地启用</li></ol>
+      <details><summary>自由探索与场景工具</summary><div class="home-tools"><a href="tools/mars-orbit.html">火星轨道</a><a href="tools/mars-vista.html">地表驾驶</a><a href="park/index.html">穹顶公园</a><a href="tools/flight-console.html">航行操作台</a><a href="tools/mars-globe.html">地形实验室</a></div></details>
+    </footer>
+  </main>
+  <dialog id="new-game"><h2>开始一次新的先遣任务</h2><p>这会替换当前火星任务的进度和园区存档。月球档案独立保存。</p><div><button id="cancel-new">保留现有进度</button><button id="confirm-new" class="primary">开始新任务</button></div></dialog>
+  <noscript>请启用 JavaScript，以启动火星任务。</noscript>
+  <script type="module" src="src/journey/home.js"></script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+:root {
+  color-scheme: dark;
+  --surface: #171615;
+  --surface-soft: rgba(24, 23, 22, 0.72);
+  --text: #f0eee9;
+  --muted: #b7b0a8;
+  --line: rgba(240, 238, 233, 0.16);
+  --accent: #a7e3dd;
+  --accent-ink: #17302e;
+  font-family: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button,
+canvas {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.builder button:disabled,
+.views button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.builder [hidden] {
+  display: none !important;
+}
+
+.builder button:focus-visible,
+.builder input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+#scene.is-dragging {
+  cursor: grabbing;
+}
+
+.interface {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.masthead {
+  position: absolute;
+  top: max(24px, env(safe-area-inset-top));
+  left: max(28px, env(safe-area-inset-left));
+  width: min(420px, calc(100vw - 56px));
+}
+
+.brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 11px;
+  height: 40px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(27px, 3.2vw, 44px);
+  font-weight: 580;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+.summary {
+  max-width: 34ch;
+  margin: 16px 0 0 25px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.views {
+  position: absolute;
+  top: max(28px, env(safe-area-inset-top));
+  right: max(28px, env(safe-area-inset-right));
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(20, 19, 18, 0.68);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.views button {
+  min-width: 58px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 180ms ease, background-color 180ms ease, transform 120ms ease;
+}
+
+.views button:hover,
+.views button:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.views button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.views button:active {
+  transform: translateY(1px);
+}
+
+.views button.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.telemetry {
+  position: absolute;
+  right: max(28px, env(safe-area-inset-right));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  width: min(280px, calc(100vw - 56px));
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.telemetry dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 22px;
+  margin: 0;
+}
+
+.telemetry dl div {
+  min-width: 0;
+}
+
+.telemetry dt {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.telemetry dd {
+  margin: 0;
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+}
+
+.controls {
+  position: absolute;
+  left: max(28px, env(safe-area-inset-left));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.controls p {
+  margin: 0;
+}
+
+.controls strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: #171615;
+  transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1), visibility 600ms;
+}
+
+.loading.is-complete {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.loading > div,
+.loading-track {
+  width: min(360px, calc(100vw - 48px));
+}
+
+.loading-copy {
+  position: absolute;
+  display: flex;
+  justify-content: space-between;
+  transform: translateY(-18px);
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.loading-track {
+  height: 2px;
+  overflow: hidden;
+  background: rgba(240, 238, 233, 0.12);
+}
+
+.loading-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.unsupported {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 32px;
+  background: #171615;
+  text-align: center;
+}
+
+.unsupported[hidden] {
+  display: none;
+}
+
+.unsupported h2 {
+  margin: 0 0 10px;
+  font-size: 24px;
+}
+
+.unsupported p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .masthead {
+    top: max(18px, env(safe-area-inset-top));
+    left: max(18px, env(safe-area-inset-left));
+  }
+
+  .summary,
+  .telemetry {
+    display: none;
+  }
+
+  .views {
+    top: auto;
+    right: 18px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+  }
+
+  .controls {
+    left: 18px;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    width: 150px;
+    gap: 5px 10px;
+  }
+
+  .controls p:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .views,
+  .telemetry {
+    background: rgba(24, 23, 22, 0.94);
+  }
+}

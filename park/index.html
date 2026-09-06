@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#171615" />
+    <meta name="description" content="一个由 Three.js 程序化绘制的火星穹顶公园原型。" />
+    <title>COSMOS — 火星穹顶公园 · 科普剌忒斯谷底</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      #fade{ position:fixed; inset:0; z-index:60; background:#0d0a09; pointer-events:none;
+             opacity:0; transition:opacity .8s ease; }
+      #fade.on{ opacity:1; }
+      /* .interface 整块是 pointer-events:none（这样拖动能穿透到画布上），
+         容器里每一块要接受点击的面板都得自己把它打开。
+         漏掉这一行的后果是：面板画得出来、看得见、但一个按钮都按不动。 */
+      .builder{ pointer-events:auto;
+                position:fixed; left:18px; bottom:70px; z-index:20; width:210px;
+                font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+                background:rgba(13,10,9,.78); border:1px solid rgba(167,227,221,.28);
+                padding:11px 12px; color:#cfe6ee; }
+      .builder-title{ margin:0 0 8px; letter-spacing:.2em; color:#a7e3dd; font-size:10px; }
+      .builder-row{ display:flex; gap:5px; }
+      .builder input{ flex:1; min-width:0; background:rgba(255,255,255,.05); color:#cfe6ee;
+                      border:1px solid rgba(167,227,221,.25); padding:5px 7px; font:inherit; }
+      .builder button{ font:inherit; font-size:10px; letter-spacing:.1em; cursor:pointer;
+                       background:rgba(255,255,255,.05); color:#cfe6ee;
+                       border:1px solid rgba(167,227,221,.25); padding:5px 9px; }
+      .builder button:hover{ background:rgba(167,227,221,.14); }
+      .builder button.is-active{ background:#a7e3dd; color:#0d0a09; border-color:#a7e3dd; }
+      #place-hint{ margin:7px 0 0; color:#7d8f95; font-size:10px; opacity:.55; }
+      #place-hint.is-on{ opacity:1; color:#a7e3dd; }
+      .builder-list{ display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+      .builder-list button{ font-size:10px; padding:4px 7px; }
+      .builder-wide{ width:100%; margin-top:9px; }
+      #build-tag{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:20;
+                  font:11px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.22em;
+                  color:#a7e3dd; background:rgba(13,10,9,.72); border:1px solid rgba(167,227,221,.3);
+                  padding:9px 18px; transition:opacity .6s ease; }
+      #build-tag.is-done{ opacity:0; }
+      .backlink{ position:fixed; right:18px; bottom:18px; z-index:20;
+                 font:11px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.14em;
+                 color:#a7e3dd; text-decoration:none; background:rgba(13,10,9,.72);
+                 border:1px solid rgba(167,227,221,.3); padding:9px 14px; }
+      .backlink:hover{ background:#a7e3dd; color:#0d0a09; }
+    </style>
+    <!-- MOLA MEGDR 4 px/度：穹顶外面的地形是真的 -->
+    <script src="../data/mola_4ppd.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../vendor/three/three.module.js",
+          "three/addons/": "../vendor/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="scene" aria-label="可交互的火星穹顶三维场景"></canvas>
+    <div id="fade" class="on"></div>
+    <div id="build-tag">正在建造穹顶结构</div>
+    <a class="backlink" href="../tools/mars-orbit.html">← 回到轨道</a>
+
+    <main class="interface" aria-label="场景控制界面">
+      <header class="masthead">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <p class="eyebrow">THREE.JS FIELD STUDY</p>
+            <h1>火星穹顶公园</h1>
+          </div>
+        </div>
+        <p class="summary">科普剌忒斯峡谷谷底 13.375°S / 300.125°E · 穹顶外的地形取自 MOLA 实测高程。</p>
+      </header>
+
+      <nav class="views" aria-label="视角预设">
+        <button type="button" data-view="overview" class="is-active">全景</button>
+        <button type="button" data-view="entry">入口</button>
+        <button type="button" data-view="greenhouse">温室</button>
+        <button type="button" data-view="vegetation">植被</button>
+      </nav>
+
+      <aside class="builder" aria-label="园区建设">
+        <p class="builder-title">园区建设</p>
+        <div class="builder-row">
+          <input id="campus-name" type="text" placeholder="穹顶 02" maxlength="14"
+                 aria-label="新穹顶名称" />
+          <button type="button" id="campus-add">新建</button>
+        </div>
+        <button type="button" id="campus-recommend" class="builder-wide" hidden>在推荐位置扩建 · 380 m</button>
+        <p id="place-hint">点击地面放置新的穹顶</p>
+        <div id="campus-list" class="builder-list" aria-label="已建园区"></div>
+        <button type="button" id="rover-toggle" class="builder-wide">遥控探测车</button>
+        <button type="button" id="rover-rescue" class="builder-wide" hidden>将车移回主站</button>
+      </aside>
+
+      <aside class="telemetry" aria-label="场景参数">
+        <dl>
+          <div><dt>穹顶直径</dt><dd>260 m</dd></div>
+          <div><dt>冠顶高度</dt><dd>64 m</dd></div>
+          <div><dt>结构</dt><dd>24 × 13</dd></div>
+          <div><dt>当地重力</dt><dd>3.72 m/s²</dd></div>
+          <div><dt>站点高程</dt><dd>−4.64 km</dd></div>
+          <div><dt>北壁</dt><dd>30 km / +7.7 km</dd></div>
+          <div><dt>草叶实例</dt><dd>6,800</dd></div>
+          <div><dt>树木结构</dt><dd>103 × 5</dd></div>
+        </dl>
+      </aside>
+
+      <footer class="controls" id="controls-hint">
+        <p><strong>拖动</strong> 环视</p>
+        <p><strong>滚轮</strong> 缩放</p>
+        <p><strong>WASD</strong> 平移</p>
+        <p><strong>K</strong> 保存画面</p>
+      </footer>
+      <footer class="controls" id="drive-hint" style="display:none">
+        <p><strong>W/S</strong> 油门</p>
+        <p><strong>A/D</strong> 转向</p>
+        <p><strong>空格</strong> 刹车</p>
+        <p><strong>拖动</strong> 转视角</p>
+        <p><strong>滚轮</strong> 拉近拉远</p>
+        <p><strong>C</strong> 换机位 <span id="drive-cam">跟车</span></p>
+      </footer>
+    </main>
+
+    <div class="loading" id="loading" role="status" aria-live="polite">
+      <div class="loading-copy">
+        <span>正在构建穹顶结构</span>
+        <span id="load-percent">0%</span>
+      </div>
+      <div class="loading-track"><i id="load-bar"></i></div>
+    </div>
+
+    <div class="unsupported" id="unsupported" hidden>
+      <h2>当前浏览器无法启动 WebGL</h2>
+      <p>请使用最新版 Chrome、Edge、Firefox 或 Safari。</p>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

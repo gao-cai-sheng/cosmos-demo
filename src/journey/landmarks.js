@@ -1,0 +1,91 @@
+// Existing orbit labels, shared by the planet map and orbital view.
+export const PLACES = [
+  // ---- 火山 ----
+  ['奥林帕斯山','Olympus Mons',      18.65, 226.2, 1,'mons'],
+  ['阿斯克劳山','Ascraeus Mons',     11.80, 255.5, 1,'mons'],
+  ['帕弗尼斯山','Pavonis Mons',       1.48, 247.0, 1,'mons'],
+  ['阿尔西亚山','Arsia Mons',        -8.35, 239.9, 1,'mons'],
+  ['阿尔巴山','Alba Mons',           40.50, 250.4, 1,'mons'],
+  ['埃律西昂山','Elysium Mons',      25.02, 147.2, 1,'mons'],
+  ['赫卡忒斯丘','Hecates Tholus',    32.12, 150.2, 3,'mons'],
+  ['阿波利纳里斯山','Apollinaris Mons',-9.30,174.4, 2,'mons'],
+  ['提尔赫纳山','Tyrrhenus Mons',   -21.36, 106.5, 3,'mons'],
+  ['哈德里亚卡山','Hadriacus Mons', -30.60,  91.8, 3,'mons'],
+
+  // ---- 峡谷与河谷 ----
+  ['水手谷','Valles Marineris',     -13.90, 301.4, 1,'vallis'],
+  ['诺克提斯迷宫','Noctis Labyrinthus',-6.50,258.3, 2,'vallis'],
+  ['伊俄斯峡谷','Ius Chasma',        -7.00, 274.5, 3,'vallis'],
+  ['俄斐峡谷','Ophir Chasma',        -4.00, 287.5, 3,'vallis'],
+  ['坎多耳峡谷','Candor Chasma',     -6.50, 289.0, 3,'vallis'],
+  ['墨拉斯峡谷','Melas Chasma',     -10.50, 287.3, 2,'vallis'],
+  ['科普剌忒斯峡谷','Coprates Chasma',-13.40,300.6, 2,'vallis'],
+  ['卡普里峡谷','Capri Chasma',      -8.00, 317.0, 3,'vallis'],
+  ['厄俄斯峡谷','Eos Chasma',       -12.00, 318.5, 3,'vallis'],
+  ['卡塞谷','Kasei Valles',          24.60, 295.0, 2,'vallis'],
+  ['阿瑞斯谷','Ares Vallis',         10.40, 334.0, 3,'vallis'],
+  ['玛阿迪姆谷','Ma’adim Vallis',-21.00,182.4, 3,'vallis'],
+  ['尼利槽沟','Nili Fossae',         22.00,  76.5, 3,'vallis'],
+  ['刻耳柏洛斯槽沟','Cerberus Fossae',10.00,157.0, 3,'vallis'],
+
+  // ---- 平原 ----
+  ['希腊平原','Hellas Planitia',    -42.40,  70.5, 1,'planitia'],
+  ['阿耳古瑞平原','Argyre Planitia',-49.70, 316.0, 1,'planitia'],
+  ['伊西底斯平原','Isidis Planitia', 12.90,  87.0, 1,'planitia'],
+  ['乌托邦平原','Utopia Planitia',   46.70, 117.5, 1,'planitia'],
+  ['亚马逊平原','Amazonis Planitia', 24.80, 196.0, 1,'planitia'],
+  ['阿卡狄亚平原','Arcadia Planitia',47.20, 184.3, 1,'planitia'],
+  ['阿西达利亚平原','Acidalia Planitia',46.70,338.0,1,'planitia'],
+  ['克律塞平原','Chryse Planitia',   26.70, 320.0, 1,'planitia'],
+  ['埃律西昂平原','Elysium Planitia', 3.00, 154.7, 1,'planitia'],
+  ['北方大平原','Vastitas Borealis', 70.00,  40.0, 1,'planitia'],
+
+  // ---- 高原 ----
+  ['大瑟提斯高原','Syrtis Major Planum',8.40,69.5, 1,'planitia'],
+  ['太阳高原','Solis Planum',       -26.40, 270.0, 2,'planitia'],
+  ['叙利亚高原','Syria Planum',     -12.10, 256.0, 2,'planitia'],
+  ['月神高原','Lunae Planum',        10.00, 295.5, 2,'planitia'],
+  ['子午高原','Meridiani Planum',    -0.20, 357.5, 2,'planitia'],
+  ['赫斯珀里亚高原','Hesperia Planum',-21.70,109.9,2,'planitia'],
+  ['北极高原','Planum Boreum',       88.00,  15.0, 1,'planitia'],
+  ['南极高原','Planum Australe',    -83.00, 160.0, 1,'planitia'],
+
+  // ---- 高地 ----
+  ['阿拉伯高地','Arabia Terra',      21.00,   6.0, 1,'terra'],
+  ['诺亚高地','Noachis Terra',      -50.40, 354.4, 1,'terra'],
+  ['塞壬高地','Terra Sirenum',      -39.70, 210.3, 1,'terra'],
+  ['客迈拉高地','Terra Cimmeria',   -34.70, 145.0, 1,'terra'],
+  ['坦佩高地','Tempe Terra',         40.40, 289.5, 2,'terra'],
+  ['克桑忒高地','Xanthe Terra',       2.70, 311.7, 2,'terra'],
+  ['珍珠高地','Margaritifer Terra',  -4.90, 334.2, 2,'terra'],
+  ['普罗米修高地','Promethei Terra',-65.40,  98.9, 2,'terra'],
+  ['泰瑞纳高地','Tyrrhena Terra',   -13.40,  88.8, 3,'terra'],
+  ['奥尼亚高地','Aonia Terra',      -59.90, 263.7, 2,'terra'],
+
+  // ---- 撞击坑 ----
+  ['盖尔坑','Gale',                  -5.40, 137.8, 2,'crater'],
+  ['耶泽罗坑','Jezero',              18.38,  77.6, 2,'crater'],
+  ['古谢夫坑','Gusev',              -14.50, 175.4, 3,'crater'],
+  ['斯基亚帕雷利坑','Schiaparelli',  -2.70,  16.8, 2,'crater'],
+  ['惠更斯坑','Huygens',            -14.00,  55.6, 2,'crater'],
+  ['卡西尼坑','Cassini',             23.40,  32.1, 3,'crater'],
+  ['洛厄尔坑','Lowell',             -52.30, 278.5, 3,'crater'],
+  ['科罗廖夫坑','Korolev',           72.80, 164.6, 3,'crater'],
+  ['牛顿坑','Newton',               -40.80, 201.9, 3,'crater'],
+  ['赫歇尔坑','Herschel',           -14.50, 129.9, 3,'crater'],
+  ['黑尔坑','Hale',                 -35.70, 323.6, 3,'crater'],
+  ['霍尔登坑','Holden',             -26.40, 325.9, 3,'crater'],
+  ['奋进坑','Endeavour',             -2.28, 354.8, 3,'crater'],
+
+  // ---- 着陆点 ----
+  ['好奇号','Curiosity 2012',        -4.59, 137.4, 2,'site'],
+  ['毅力号','Perseverance 2021',     18.44,  77.5, 2,'site'],
+  ['祝融号','Zhurong 2021',          25.07, 109.9, 2,'site'],
+  ['洞察号','InSight 2018',           4.50, 135.6, 2,'site'],
+  ['机遇号','Opportunity 2004',      -1.95, 354.5, 3,'site'],
+  ['勇气号','Spirit 2004',          -14.57, 175.5, 3,'site'],
+  ['探路者','Pathfinder 1997',       19.13, 326.8, 3,'site'],
+  ['海盗1号','Viking 1 1976',        22.48, 312.1, 3,'site'],
+  ['海盗2号','Viking 2 1976',        47.97, 134.3, 3,'site'],
+  ['凤凰号','Phoenix 2008',          68.22, 234.3, 3,'site']
+];

@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 火星球 / 区域详图</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  body{ padding:16px; }
+
+  .top{ display:flex; justify-content:space-between; align-items:flex-end;
+        border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:14px; }
+  .top h1{ margin:0; font-size:14px; letter-spacing:.2em; color:var(--cy); font-weight:600; }
+  .top .sub{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin-top:3px; }
+  .top .right{ text-align:right; color:var(--dim); font-size:10px; letter-spacing:.12em; }
+
+  .grid{ display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr) minmax(0,.8fr);
+         gap:14px; align-items:start; }
+  @media(max-width:1240px){ .grid{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
+  @media(max-width:820px){ .grid{ grid-template-columns:minmax(0,1fr); } }
+  .grid > *{ min-width:0; }
+
+  .card{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:12px; min-width:0; }
+  .card h2{ margin:0 0 10px; font-size:10px; letter-spacing:.16em; color:var(--dim); font-weight:500;
+            display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .card h2 b{ color:var(--cy); font-weight:500; }
+
+  .stage{ position:relative; width:100%; aspect-ratio:1/1; border:1px solid var(--line); overflow:hidden; }
+  .stage.wide{ aspect-ratio:4/3; }
+  .stage canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .stage canvas.gl{ z-index:1; }
+  .stage canvas.ov{ z-index:2; pointer-events:none; }
+  .stage.globe{ cursor:grab; } .stage.globe:active{ cursor:grabbing; }
+  .stage.reg{ cursor:crosshair; }
+
+  .seg{ display:flex; gap:4px; }
+  button{ font:inherit; font-size:10px; letter-spacing:.1em; padding:5px 9px; cursor:pointer;
+          background:rgba(255,255,255,.04); color:var(--ink);
+          border:1px solid var(--line); transition:.12s; }
+  button:hover{ background:rgba(111,227,245,.10); }
+  button.on{ background:var(--cy); color:#05060a; border-color:var(--cy); }
+
+  .row{ display:flex; justify-content:space-between; gap:10px; padding:3px 0; flex-wrap:wrap; }
+  .row span{ color:var(--dim); }
+  .row b{ font-weight:500; text-align:right; }
+  .row.bad b{ color:var(--bad); } .row.warn b{ color:var(--warn); } .row.good b{ color:var(--good); }
+
+  .verdict{ margin-top:10px; padding:10px; font-size:11px; line-height:1.6;
+            border-left:2px solid var(--good); background:rgba(126,224,168,.06); color:#bfe6d2; }
+  .verdict.no{ border-left-color:var(--bad); background:rgba(255,95,86,.07); color:#ffd0cc; }
+  .verdict.risk{ border-left-color:var(--warn); background:rgba(245,183,111,.07); color:#f2dcc0; }
+  .verdict b{ display:block; letter-spacing:.14em; margin-bottom:4px; }
+
+  .foot{ margin-top:9px; color:var(--dim); font-size:10px; line-height:1.6; }
+  .jump{ display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+  .jump button{ font-size:9.5px; padding:4px 7px; }
+
+  #err{ position:fixed; right:16px; bottom:16px; max-width:520px; z-index:99;
+        background:#2a0d0d; border:1px solid #ff5f56; color:#ffd9d6; padding:12px 14px;
+        font-size:11px; line-height:1.6; white-space:pre-wrap; display:none; }
+  #err b{ color:#ff5f56; display:block; margin-bottom:6px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>火星球 · 区域详图</h1>
+    <div class="sub">MU-7 CASSIOPEIA · 承包商编号 D-4471 · 合同 ANX-77</div>
+  </div>
+  <div class="right">
+    地形模型 · 参数化重建 · 着色器内实时求值<br>
+    基准面 MOLA datum · 半径 3396.2 km
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- ============ 火星球 ============ -->
+  <div class="card">
+    <h2>
+      <span>火星球 <b id="globeLab">地形</b></span>
+      <span class="seg">
+        <button id="gTopo" class="on">地形</button>
+        <button id="gLat">晶格</button>
+        <button id="gSpin" class="on">自转</button>
+      </span>
+    </h2>
+    <div class="stage globe" id="gStage">
+      <canvas class="gl" id="gGL"></canvas>
+      <canvas class="ov" id="gOV"></canvas>
+    </div>
+    <div class="foot">拖动旋转 · 滚轮缩放 · 点击球面选点</div>
+    <div class="jump" id="jump"></div>
+  </div>
+
+  <!-- ============ 区域详图 ============ -->
+  <div class="card">
+    <h2>
+      <span>区域详图 <b id="spanLab">—</b></span>
+      <span class="seg">
+        <button id="rTopo" class="on">地形</button>
+        <button id="rLat">晶格</button>
+      </span>
+    </h2>
+    <div class="stage wide reg" id="rStage">
+      <canvas class="gl" id="rGL"></canvas>
+      <canvas class="ov" id="rOV"></canvas>
+    </div>
+    <div class="foot">滚轮缩放 · 点击可在详图内微调落点 · 缩放到几十公里时会显现更细的地貌</div>
+  </div>
+
+  <!-- ============ 状态 ============ -->
+  <div>
+    <div class="card">
+      <h2>选定着陆点 <b id="siteName">—</b></h2>
+      <div id="siteRows"></div>
+      <div class="verdict" id="verdict"><b>等待选点</b>在火星球上点一个位置。</div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>下降代价 <b id="dvLab">—</b></h2>
+      <div id="dvRows"></div>
+      <div class="foot">火星大气稀薄，只有低海拔够气动减速。<br>这一项会直接吃掉航行操作台里的着陆余量。</div>
+    </div>
+  </div>
+</div>
+
+<div id="err"></div>
+
+<script>
+/* ============================================================
+   COSMOS 火星球 / 区域详图
+   零依赖 WebGL2。
+
+   关键设计：地形函数写在着色器里，不预先烘成贴图。
+   这样火星球和区域详图共用同一个函数，且区域详图放大到
+   几十公里跨度时仍然有细节 —— 烘好的全球图在那个尺度上
+   只剩几个像素。
+
+   数值读数走 GPU 回读（3×3 数据渲染 + readPixels），
+   所以显示的海拔/坡度和画面永远是同一个来源，不会漂。
+   ============================================================ */
+
+const errBox = document.getElementById('err');
+function fail(t, d){ errBox.style.display='block'; errBox.innerHTML='<b>'+t+'</b>'+(d||''); }
+addEventListener('error', e => fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')));
+
+const R_MARS = 3396.2, KMPD = 2*Math.PI*R_MARS/360;   // 59.27 km/度
+const D2R = Math.PI/180;
+
+/* ============================================================
+   着色器
+   ============================================================ */
+const VS = `#version 300 es
+void main(){
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+out vec4 outC;
+
+uniform vec2  uRes;
+uniform int   uMode;        // 0=球  1=区域彩图  2=区域数据(回读)
+uniform int   uLayer;       // 0=地形  1=晶格
+uniform float uYaw, uPitch, uDist;
+uniform vec2  uCenter;      // 区域中心 (lat, lon)
+uniform float uHalf;        // 区域半高（度）
+uniform int   uOct;         // 细节倍频数
+
+const float RM = 3396.2;
+const float KMPD = 59.2716;
+
+/* ---- 真实地貌参数（lat, lon, 高/深, 半径km） ---- */
+const vec4 VOLC[6] = vec4[6](
+  vec4( 18.65, 226.2, 21.2, 300.0),   // 奥林帕斯山
+  vec4( 11.80, 255.5, 18.2, 230.0),   // 阿斯克劳山
+  vec4(  0.80, 247.0, 14.0, 190.0),   // 帕弗尼斯山
+  vec4( -8.35, 239.9, 17.7, 240.0),   // 阿尔西亚山
+  vec4( 25.00, 147.2, 14.1, 250.0),   // 埃律西昂山
+  vec4( 40.50, 250.4,  6.8, 800.0)    // 阿尔巴山
+);
+const vec2 VCAL[6] = vec2[6](         // 火山口半径, 深度
+  vec2(40.0,3.0), vec2(25.0,2.5), vec2(25.0,4.5),
+  vec2(55.0,1.5), vec2( 8.0,0.5), vec2(60.0,1.0)
+);
+const vec4 BAS[4] = vec4[4](
+  vec4(-42.4,  70.5, 7.2, 1150.0),    // 希腊平原
+  vec4(-49.7, 316.0, 5.2,  900.0),    // 阿尔及尔平原
+  vec4( 12.9,  87.0, 3.0,  750.0),    // 伊西底斯平原
+  vec4( 46.7, 117.5, 3.4, 1600.0)     // 乌托邦平原
+);
+const float BRIM[4] = float[4](1.8, 1.5, 0.8, 0.3);
+const vec2 VAL[8] = vec2[8](          // 水手谷折线
+  vec2(-7.5,258.0), vec2(-9.0,268.0), vec2(-11.0,278.0), vec2(-13.0,290.0),
+  vec2(-14.0,300.0), vec2(-13.0,310.0), vec2(-11.0,318.0), vec2(-9.0,325.0)
+);
+
+float dlon(float a, float b){ return mod(a-b+540.0, 360.0)-180.0; }
+
+/* 球面大圆距离，km。经度绕回由 sin(Δλ/2) 自然处理 */
+float gcd(vec2 a, vec2 b){
+  float p1 = radians(a.x), p2 = radians(b.x);
+  float sp = sin(radians(b.x-a.x)*0.5);
+  float sl = sin(radians(dlon(b.y,a.y))*0.5);
+  float h  = sp*sp + cos(p1)*cos(p2)*sl*sl;
+  return 2.0*RM*asin(min(1.0, sqrt(max(0.0,h))));
+}
+
+vec3 llToVec(vec2 ll){
+  float la = radians(ll.x), lo = radians(ll.y);
+  return vec3(cos(la)*cos(lo), sin(la), cos(la)*sin(lo));
+}
+vec2 vecToLL(vec3 p){
+  return vec2(degrees(asin(clamp(p.y,-1.0,1.0))), degrees(atan(p.z,p.x)));
+}
+
+/* ---- 三维噪声：直接在球面方向上取样，没有接缝也没有极点畸变 ---- */
+float h31(vec3 p){
+  return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453123);
+}
+float n3(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  float a = mix(mix(mix(h31(i+vec3(0,0,0)), h31(i+vec3(1,0,0)), f.x),
+                    mix(h31(i+vec3(0,1,0)), h31(i+vec3(1,1,0)), f.x), f.y),
+                mix(mix(h31(i+vec3(0,0,1)), h31(i+vec3(1,0,1)), f.x),
+                    mix(h31(i+vec3(0,1,1)), h31(i+vec3(1,1,1)), f.x), f.y), f.z);
+  return a;
+}
+float fbm3(vec3 p, int oct){
+  float s=0.0, a=0.5, f=1.0;
+  for(int i=0;i<8;i++){
+    if(i>=oct) break;
+    s += n3(p*f)*a; f*=2.07; a*=0.5;
+  }
+  return s;
+}
+
+/* ============================================================
+   高程（km）
+   换真实 MOLA 数据时，把这里换成一张高程贴图的采样即可
+   ============================================================ */
+float marsH(vec2 ll, int oct){
+  float lat = ll.x, lon = ll.y;
+  float h = 0.0;
+  vec3 sp = llToVec(ll);
+
+  /* 南北二分 */
+  float bLat = 22.0*cos(radians(lon-30.0)) + 6.0;
+  h += 1.6 - 4.6/(1.0 + exp(-(lat-bLat)/9.0));
+
+  /* 塔尔西斯隆起 */
+  float dT = gcd(ll, vec2(-2.0,248.0));
+  float rT = dT/3400.0;
+  h += 5.2*exp(-rT*rT*1.5);
+
+  /* 盾状火山 */
+  for(int i=0;i<6;i++){
+    vec4 v = VOLC[i]; vec2 c = VCAL[i];
+    float d = gcd(ll, v.xy);
+    if(d < v.w*2.2){
+      float f = max(0.0, 1.0 - d/v.w);
+      /* 盾体 + 基底崖。真实的奥林帕斯山边缘是一圈最高 8 km 的陡崖，
+         不是平滑收尾 —— 这道崖正是它整圈都没法降落的原因 */
+      float scarp = smoothstep(v.w*1.04, v.w*0.92, d);
+      h += v.z*pow(f, 1.7)*(0.70 + 0.30*scarp);
+      /* 山腰的放射状熔岩流纹理：山腰最强，山顶与山脚归零 */
+      float flank = clamp(f*(1.0-f)*4.0, 0.0, 1.0);
+      h += (fbm3(sp*95.0, 4) - 0.5)*flank*1.75;
+      /* 火山口：陡壁、平底 */
+      if(d < c.x*1.2) h -= c.y*smoothstep(1.12, 0.80, d/c.x);
+    }
+  }
+
+  /* 撞击盆地 */
+  for(int i=0;i<4;i++){
+    vec4 b = BAS[i];
+    float d = gcd(ll, b.xy);
+    if(d < b.w*2.4){
+      float r = d/b.w;
+      h -= b.z*exp(-r*r*1.6);
+      float e = (d - b.w*1.05)/(b.w*0.30);
+      h += BRIM[i]*exp(-e*e);
+    }
+  }
+
+  /* 水手谷：到折线的最近距离（局部平面近似） */
+  float dv = 1e9;
+  float clat = max(0.15, cos(radians(lat)));
+  for(int i=0;i<7;i++){
+    vec2 a = VAL[i], b2 = VAL[i+1];
+    vec2 P = vec2(dlon(lon, a.y)*clat, lat - a.x);
+    vec2 D = vec2(dlon(b2.y, a.y)*clat, b2.x - a.x);
+    float t = clamp(dot(P,D)/max(1e-6, dot(D,D)), 0.0, 1.0);
+    dv = min(dv, length(P - D*t)*KMPD);
+  }
+  if(dv < 400.0){ float q=dv/115.0; h -= 7.0*exp(-q*q*1.9); }
+
+  /* 细节：南半球高地更老更粗糙 */
+  float old = 1.0/(1.0 + exp((lat-bLat)/9.0));
+  h += (fbm3(sp*7.0,  5)      - 0.5)*(1.10 + old*1.70);
+  h += (fbm3(sp*20.0, 4)      - 0.5)*(0.70 + old*0.95);   // 中频，填上尺度断层
+  h += (fbm3(sp*38.0, min(oct,5)) - 0.5)*(0.35 + old*0.55);
+  if(oct > 4) h += (fbm3(sp*190.0, oct-3) - 0.5)*(0.13 + old*0.22);
+  if(oct > 6) h += (fbm3(sp*820.0, 3)     - 0.5)*(0.045 + old*0.08);
+  return h;
+}
+
+/* 晶格活跃度 */
+float latticeA(vec2 ll){
+  float a = 0.0;
+  for(int i=0;i<6;i++){
+    vec4 v = VOLC[i];
+    float d = gcd(ll, v.xy)/(v.w*1.5);
+    a = max(a, exp(-d*d)*(v.z/21.2));
+  }
+  float dv = 1e9;
+  float clat = max(0.15, cos(radians(ll.x)));
+  for(int i=0;i<7;i++){
+    vec2 p = VAL[i], q = VAL[i+1];
+    vec2 P = vec2(dlon(ll.y,p.y)*clat, ll.x-p.x);
+    vec2 D = vec2(dlon(q.y,p.y)*clat, q.x-p.x);
+    float t = clamp(dot(P,D)/max(1e-6,dot(D,D)),0.0,1.0);
+    dv = min(dv, length(P-D*t)*KMPD);
+  }
+  float e = dv/320.0;
+  a = max(a, exp(-e*e)*0.85);
+  float dT = gcd(ll, vec2(-2.0,248.0))/2600.0;
+  a = max(a, exp(-dT*dT)*0.45);
+  return clamp(a, 0.0, 1.0);
+}
+
+/* ---- 配色 ---- */
+vec3 topoCol(float h){
+  vec3 c;
+  if(h < -5.0)      c = mix(vec3(.16,.08,.27), vec3(.12,.24,.51), (h+8.5)/3.5);
+  else if(h < -2.5) c = mix(vec3(.12,.24,.51), vec3(.12,.47,.59), (h+5.0)/2.5);
+  else if(h <  0.0) c = mix(vec3(.12,.47,.59), vec3(.16,.59,.43), (h+2.5)/2.5);
+  else if(h <  1.5) c = mix(vec3(.16,.59,.43), vec3(.59,.65,.29), h/1.5);
+  else if(h <  4.0) c = mix(vec3(.59,.65,.29), vec3(.78,.59,.24), (h-1.5)/2.5);
+  else if(h <  8.0) c = mix(vec3(.78,.59,.24), vec3(.80,.39,.22), (h-4.0)/4.0);
+  else if(h < 13.0) c = mix(vec3(.80,.39,.22), vec3(.75,.27,.24), (h-8.0)/5.0);
+  else if(h < 18.0) c = mix(vec3(.75,.27,.24), vec3(.84,.59,.59), (h-13.0)/5.0);
+  else              c = mix(vec3(.84,.59,.59), vec3(.96,.94,.94), clamp((h-18.0)/4.0,0.0,1.0));
+  return c;
+}
+vec3 latCol(float a){
+  if(a < 0.35) return mix(vec3(.04,.12,.18), vec3(.12,.47,.61), a/0.35);
+  if(a < 0.70) return mix(vec3(.12,.47,.61), vec3(.88,.71,.37), (a-0.35)/0.35);
+  return mix(vec3(.88,.71,.37), vec3(1.0,.98,.96), (a-0.70)/0.30);
+}
+
+/* ---- 旋转 ---- */
+mat3 rotY(float a){ float c=cos(a),s=sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0, s,0.0,c); }
+mat3 rotX(float a){ float c=cos(a),s=sin(a); return mat3(1.0,0.0,0.0, 0.0,c,s, 0.0,-s,c); }
+
+/* ---- 地表着色（含山体阴影） ---- */
+vec3 shadeSurface(vec2 ll, int oct, vec3 N, mat3 toView, float exag){
+  float e = max(0.006, uHalf*0.02);          // 求导步长（度）
+  if(uMode == 0) e = 0.16;
+  float hC = marsH(ll, oct);
+  float hE = marsH(ll + vec2(0.0, e), oct);
+  float hW = marsH(ll - vec2(0.0, e), oct);
+  float hN = marsH(ll + vec2(e, 0.0), oct);
+  float hS = marsH(ll - vec2(e, 0.0), oct);
+
+  float clat = max(0.12, cos(radians(ll.x)));
+  float dxKm = e*KMPD*clat, dyKm = e*KMPD;
+  float gx = (hE-hW)/(2.0*dxKm);             // km/km 向东
+  float gy = (hN-hS)/(2.0*dyKm);             // km/km 向北
+
+  vec3 base = (uLayer == 0) ? topoCol(hC) : latCol(latticeA(ll));
+
+  vec3 T = normalize(cross(vec3(0.0,1.0,0.0), N));   // 东
+  vec3 B = cross(N, T);                              // 北
+  vec3 Np = normalize(N - T*gx*exag - B*gy*exag);
+  vec3 Nv = normalize(toView * Np);
+
+  vec3 L = normalize(vec3(-0.48, 0.42, 0.77));
+  float dif = max(dot(Nv, L), 0.0);
+  float amb = 0.34;
+  return base*(amb + dif*0.95);
+}
+
+void main(){
+  /* ============ 数据回读模式 ============ */
+  if(uMode == 2){
+    vec2 uv = gl_FragCoord.xy/uRes;
+    float clat = max(0.12, cos(radians(uCenter.x)));
+    vec2 ll = vec2(uCenter.x + (uv.y-0.5)*uHalf*2.0,
+                   uCenter.y + (uv.x-0.5)*uHalf*2.0/clat);
+    float h = marsH(ll, uOct);
+    float a = latticeA(ll);
+    float e = clamp((h+10.0)/40.0, 0.0, 0.99999);    // -10…+30 km → 0…1
+    float hi = floor(e*255.0);
+    float lo = floor((e*255.0 - hi)*255.0);
+    outC = vec4(hi/255.0, lo/255.0, a, 1.0);
+    return;
+  }
+
+  /* ============ 区域详图 ============ */
+  if(uMode == 1){
+    vec2 uv = gl_FragCoord.xy/uRes;
+    float aspect = uRes.x/uRes.y;
+    float clat = max(0.12, cos(radians(uCenter.x)));
+    vec2 ll = vec2(uCenter.x + (uv.y-0.5)*uHalf*2.0,
+                   uCenter.y + (uv.x-0.5)*uHalf*2.0*aspect/clat);
+    vec3 N = llToVec(ll);
+    /* 区域图要看清地形，山体阴影按 km/km 梯度放大 —— 分形地形的坡度
+       大致是尺度无关的，所以同一个系数在各缩放级别都成立 */
+    vec3 col = shadeSurface(ll, uOct, N, mat3(1.0), 6.5);
+    col = pow(clamp(col,0.0,1.0), vec3(1.0/2.05));
+    outC = vec4(col, 1.0);
+    return;
+  }
+
+  /* ============ 火星球 ============ */
+  vec2 uv = (gl_FragCoord.xy*2.0 - uRes)/uRes.y;
+  vec3 ro = vec3(0.0, 0.0, uDist);
+  vec3 rd = normalize(vec3(uv, -1.6));
+
+  float b = dot(ro, rd), c = dot(ro,ro) - 1.0;
+  float disc = b*b - c;
+
+  if(disc < 0.0){
+    /* 背景星空 */
+    vec3 d = rd;
+    vec3 g = floor(d*170.0);
+    float r = fract(sin(dot(g, vec3(127.1,311.7,74.7)))*43758.5453);
+    float s = 0.0;
+    if(r > 0.9955){
+      vec3 cc = (g+0.5)/170.0;
+      s = pow(max(0.0, 1.0 - length(normalize(cc)-d)*520.0), 2.0)*(0.3+fract(r*91.7)*0.7);
+    }
+    /* 大气薄晕 */
+    float limb = smoothstep(1.28, 1.0, length(vec3(uv,0.0) - vec3(0.0,0.0,0.0)));
+    outC = vec4(vec3(s) + vec3(0.32,0.16,0.09)*limb*0.10, 1.0);
+    return;
+  }
+
+  float t = -b - sqrt(disc);
+  vec3 P = ro + rd*t;                       // 视空间球面点
+  mat3 toPlanet = transpose(rotX(uPitch)*rotY(uYaw));
+  mat3 toView   = rotX(uPitch)*rotY(uYaw);
+  vec3 Q = toPlanet * P;                    // 行星空间
+  vec2 ll = vecToLL(Q);
+
+  vec3 col = shadeSurface(ll, uOct, normalize(Q), toView, 26.0);
+
+  /* 边缘大气 */
+  float rim = pow(1.0 - max(0.0, dot(normalize(-rd), normalize(P))), 3.2);
+  col += vec3(0.42,0.22,0.13)*rim*0.30;
+
+  col = pow(clamp(col,0.0,1.0), vec3(1.0/2.05));
+  outC = vec4(col, 1.0);
+}`;
+
+/* ============================================================
+   WebGL 封装
+   ============================================================ */
+function makeGL(canvas){
+  const gl = canvas.getContext('webgl2', { antialias:false, preserveDrawingBuffer:false });
+  if(!gl){ fail('WebGL2 不可用','换 Chrome / Edge，或在浏览器设置里打开硬件加速。'); throw new Error('no webgl2'); }
+  const sh=(ty,src)=>{ const s=gl.createShader(ty); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ const l=gl.getShaderInfoLog(s); fail('着色器编译失败',l); throw new Error(l);} return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ const l=gl.getProgramInfoLog(p); fail('着色器链接失败',l); throw new Error(l); }
+  gl.useProgram(p);
+  gl.bindVertexArray(gl.createVertexArray());
+  const U = {};
+  for(const n of ['uRes','uMode','uLayer','uYaw','uPitch','uDist','uCenter','uHalf','uOct'])
+    U[n] = gl.getUniformLocation(p, n);
+  return { gl, U };
+}
+
+const G = makeGL(document.getElementById('gGL'));
+const Rg = makeGL(document.getElementById('rGL'));
+
+/* 回读用的离屏帧缓冲（3×3） */
+const RB = (() => {
+  const gl = Rg.gl;
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,3,3,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return fb;
+})();
+
+/* ============================================================
+   状态
+   ============================================================ */
+let yaw = -2.0, pitch = 0.18, dist = 2.9, spin = true;
+let gLayer = 0, rLayer = 0;
+let SEL = { lat:18.65, lon:226.2 };
+let halfDeg = 9;                       // 区域详图半高（度）
+
+const LANDMARKS = [
+  { n:'奥林帕斯山', lat:18.65, lon:226.2, t:'f' },
+  { n:'水手谷',     lat:-13,   lon:295,   t:'f' },
+  { n:'希腊平原',   lat:-42.4, lon:70.5,  t:'f' },
+  { n:'塔尔西斯',   lat:0,     lon:248,   t:'f' },
+  { n:'阿尔巴山',   lat:40.5,  lon:250.4, t:'f' },
+  { n:'埃律西昂山', lat:25.0,  lon:147.2, t:'f' },
+  { n:'好奇号',     lat:-4.59, lon:137.44,t:'l' },
+  { n:'毅力号',     lat:18.44, lon:77.45, t:'l' },
+  { n:'祝融号',     lat:25.1,  lon:109.9, t:'l' },
+  { n:'机遇号',     lat:-1.95, lon:354.47,t:'l' },
+  { n:'阿卡狄亚',   lat:40,    lon:190,   t:'c' }
+];
+
+const JUMPS = [
+  ['奥林帕斯山', 18.65, 226.2, 6],
+  ['水手谷',     -13,   295,   9],
+  ['希腊平原',   -42.4, 70.5,  18],
+  ['阿卡狄亚',   40,    190,   12],
+  ['埃律西昂山', 25.0,  147.2, 6],
+  ['阿尔西亚山', -8.35, 239.9, 5]
+];
+
+/* ============================================================
+   绘制
+   ============================================================ */
+function sizeCanvas(cv){
+  const dpr = Math.min(devicePixelRatio||1, 1.7);
+  const r = cv.getBoundingClientRect();
+  const w = Math.max(2, Math.floor(r.width*dpr)), h = Math.max(2, Math.floor(r.height*dpr));
+  if(cv.width!==w || cv.height!==h){ cv.width=w; cv.height=h; return true; }
+  return false;
+}
+
+function drawGlobe(){
+  const cv = document.getElementById('gGL');
+  sizeCanvas(cv);
+  const { gl, U } = G;
+  gl.viewport(0,0,cv.width,cv.height);
+  gl.uniform2f(U.uRes, cv.width, cv.height);
+  gl.uniform1i(U.uMode, 0);
+  gl.uniform1i(U.uLayer, gLayer);
+  gl.uniform1f(U.uYaw, yaw);
+  gl.uniform1f(U.uPitch, pitch);
+  gl.uniform1f(U.uDist, dist);
+  gl.uniform1f(U.uHalf, 1.0);
+  gl.uniform2f(U.uCenter, 0, 0);
+  gl.uniform1i(U.uOct, 5);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  drawGlobeOverlay();
+}
+
+/* 行星坐标 → 屏幕像素（与着色器的相机保持一致） */
+function project(lat, lon, W, H){
+  const la = lat*D2R, lo = lon*D2R;
+  const p = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
+  // toView = rotX(pitch)*rotY(yaw)
+  const cy=Math.cos(yaw), sy=Math.sin(yaw);
+  let v = [cy*p[0] + sy*p[2], p[1], -sy*p[0] + cy*p[2]];
+  const cp=Math.cos(pitch), sp=Math.sin(pitch);
+  v = [v[0], cp*v[1] + sp*v[2], -sp*v[1] + cp*v[2]];
+  if(v[2] < 1/dist) return null;                    // 转到背面了
+  const k = 1.6/(dist - v[2]);
+  const uvx = v[0]*k, uvy = v[1]*k;
+  return [ (uvx*H + W)/2, H - (uvy*H + H)/2 ];
+}
+
+function drawGlobeOverlay(){
+  const gl = document.getElementById('gGL');
+  const ov = document.getElementById('gOV');
+  ov.width = gl.width; ov.height = gl.height;
+  const c = ov.getContext('2d');
+  const W = ov.width, H = ov.height, s = W/700;
+  c.clearRect(0,0,W,H);
+  c.font = (11*s).toFixed(0)+'px ui-monospace,Menlo,monospace';
+  c.lineWidth = 3*s;
+
+  for(const m of LANDMARKS){
+    const q = project(m.lat, m.lon, W, H);
+    if(!q) continue;
+    const col = m.t==='l' ? '#7ee0a8' : m.t==='c' ? '#6fe3f5' : '#f5b76f';
+    c.fillStyle = col;
+    c.beginPath(); c.arc(q[0], q[1], 3*s, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.8)';
+    c.strokeText(m.n, q[0]+6*s, q[1]+4*s);
+    c.fillText(m.n, q[0]+6*s, q[1]+4*s);
+  }
+  const q = project(SEL.lat, SEL.lon, W, H);
+  if(q){
+    c.strokeStyle = '#fff'; c.lineWidth = 1.6*s;
+    c.beginPath(); c.arc(q[0], q[1], 10*s, 0, 7); c.stroke();
+    c.beginPath();
+    c.moveTo(q[0]-17*s,q[1]); c.lineTo(q[0]-5*s,q[1]);
+    c.moveTo(q[0]+5*s,q[1]);  c.lineTo(q[0]+17*s,q[1]);
+    c.moveTo(q[0],q[1]-17*s); c.lineTo(q[0],q[1]-5*s);
+    c.moveTo(q[0],q[1]+5*s);  c.lineTo(q[0],q[1]+17*s);
+    c.stroke();
+  }
+}
+
+function drawRegion(){
+  const cv = document.getElementById('rGL');
+  sizeCanvas(cv);
+  const { gl, U } = Rg;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0,0,cv.width,cv.height);
+  gl.uniform2f(U.uRes, cv.width, cv.height);
+  gl.uniform1i(U.uMode, 1);
+  gl.uniform1i(U.uLayer, rLayer);
+  gl.uniform2f(U.uCenter, SEL.lat, SEL.lon);
+  gl.uniform1f(U.uHalf, halfDeg);
+  gl.uniform1i(U.uOct, octFor(halfDeg));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  drawRegionOverlay();
+}
+function octFor(hd){
+  if(hd > 14) return 5;
+  if(hd > 6)  return 6;
+  if(hd > 2)  return 7;
+  return 8;
+}
+
+function drawRegionOverlay(){
+  const gl = document.getElementById('rGL');
+  const ov = document.getElementById('rOV');
+  ov.width = gl.width; ov.height = gl.height;
+  const c = ov.getContext('2d');
+  const W = ov.width, H = ov.height, s = W/900;
+  c.clearRect(0,0,W,H);
+
+  /* 中心十字 */
+  c.strokeStyle = '#fff'; c.lineWidth = 1.5*s;
+  const cxp = W/2, cyp = H/2;
+  c.beginPath(); c.arc(cxp, cyp, 9*s, 0, 7); c.stroke();
+  c.beginPath();
+  c.moveTo(cxp-18*s,cyp); c.lineTo(cxp-5*s,cyp);
+  c.moveTo(cxp+5*s,cyp);  c.lineTo(cxp+18*s,cyp);
+  c.moveTo(cxp,cyp-18*s); c.lineTo(cxp,cyp-5*s);
+  c.moveTo(cxp,cyp+5*s);  c.lineTo(cxp,cyp+18*s);
+  c.stroke();
+
+  /* 比例尺 */
+  const spanKm = halfDeg*2*KMPD*(H/H);          // 纵向跨度
+  const kmPerPx = (halfDeg*2*KMPD)/H;
+  let bar = Math.pow(10, Math.floor(Math.log10(kmPerPx*W*0.28)));
+  const mult = [1,2,5].find(m => bar*m >= kmPerPx*W*0.16) || 1;
+  bar *= mult;
+  const barPx = bar/kmPerPx;
+  const bx = 18*s, by = H - 22*s;
+  c.strokeStyle = '#cfe6ee'; c.lineWidth = 2*s;
+  c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+barPx,by);
+  c.moveTo(bx,by-5*s); c.lineTo(bx,by+5*s);
+  c.moveTo(bx+barPx,by-5*s); c.lineTo(bx+barPx,by+5*s);
+  c.stroke();
+  c.font = (11*s).toFixed(0)+'px ui-monospace,Menlo,monospace';
+  c.fillStyle = '#cfe6ee';
+  c.strokeStyle = 'rgba(0,0,0,.8)'; c.lineWidth = 3*s;
+  const lbl = bar >= 1 ? bar.toFixed(0)+' km' : (bar*1000).toFixed(0)+' m';
+  c.strokeText(lbl, bx, by-9*s); c.fillText(lbl, bx, by-9*s);
+
+  /* 视场标注 */
+  const info = '纵向跨度 ' + (halfDeg*2*KMPD).toFixed(0) + ' km';
+  c.strokeText(info, bx, 20*s); c.fillText(info, bx, 20*s);
+
+  /* 落在视场内的地标 */
+  const clat = Math.max(0.12, Math.cos(SEL.lat*D2R));
+  const aspect = W/H;
+  for(const m of LANDMARKS){
+    const dLat = m.lat - SEL.lat;
+    let dLon = ((m.lon - SEL.lon + 540) % 360) - 180;
+    const px = cxp + (dLon*clat/(halfDeg*2*aspect))*W;
+    const py = cyp - (dLat/(halfDeg*2))*H;
+    if(px < 0 || px > W || py < 0 || py > H) continue;
+    c.fillStyle = m.t==='l' ? '#7ee0a8' : m.t==='c' ? '#6fe3f5' : '#f5b76f';
+    c.beginPath(); c.arc(px, py, 3.5*s, 0, 7); c.fill();
+    c.strokeStyle='rgba(0,0,0,.8)';
+    c.strokeText(m.n, px+6*s, py+4*s); c.fillText(m.n, px+6*s, py+4*s);
+  }
+  document.getElementById('spanLab').textContent = (halfDeg*2*KMPD).toFixed(0) + ' km 跨度';
+}
+
+/* ============================================================
+   GPU 回读：拿到选点的海拔 / 坡度 / 粗糙度 / 活跃度
+   ============================================================ */
+function probe(lat, lon){
+  const { gl, U } = Rg;
+  const dHalf = 0.05;                       // 半高 0.05° → 3 像素间距 0.0333°
+  gl.bindFramebuffer(gl.FRAMEBUFFER, RB);
+  gl.viewport(0,0,3,3);
+  gl.uniform2f(U.uRes, 3, 3);
+  gl.uniform1i(U.uMode, 2);
+  gl.uniform2f(U.uCenter, lat, lon);
+  gl.uniform1f(U.uHalf, dHalf);
+  gl.uniform1i(U.uOct, 8);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  const px = new Uint8Array(3*3*4);
+  gl.readPixels(0,0,3,3,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  const dec = (i) => ((px[i*4]*255 + px[i*4+1]) / 65535) * 40 - 10;   // km
+  // 行序：0=下(南) 1=中 2=上(北)；列序：0=左(西) 1=中 2=右(东)
+  const hC = dec(4), hW = dec(3), hE = dec(5), hS = dec(1), hN = dec(7);
+  const lattice = px[4*4+2]/255;
+
+  const stepDeg = dHalf*2/3;
+  const clat = Math.max(0.12, Math.cos(lat*D2R));
+  const dxKm = stepDeg*KMPD*clat, dyKm = stepDeg*KMPD;
+  const gx = (hE-hW)/(2*dxKm), gy = (hN-hS)/(2*dyKm);
+  const slope = Math.atan(Math.hypot(gx,gy))/D2R;
+
+  let mx=-1e9, mn=1e9;
+  for(let i=0;i<9;i++){ const v=dec(i); if(v>mx)mx=v; if(v<mn)mn=v; }
+  const rough = Math.min(1, (mx-mn)/0.9);
+
+  return { elev:hC, slope, rough, lattice };
+}
+
+/* ============================================================
+   面板
+   ============================================================ */
+function fmtLat(v){ return Math.abs(v).toFixed(2)+'°'+(v>=0?'N':'S'); }
+function fmtLon(v){ return (((v%360)+360)%360).toFixed(2)+'°E'; }
+function row(k,v,cls){ return '<div class="row'+(cls?' '+cls:'')+'"><span>'+k+'</span><b>'+v+'</b></div>'; }
+
+function updatePanel(){
+  const p = probe(SEL.lat, SEL.lon);
+  const aero = Math.max(0, Math.min(1, (2.0 - p.elev)/7.0));
+  const dvLand = 0.55 + 3.55*(1-aero);
+
+  const cE = p.elev<1?'good':p.elev<4?'warn':'bad';
+  const cL = Math.abs(SEL.lat)<30?'good':Math.abs(SEL.lat)<50?'warn':'bad';
+  const cS = p.slope<5?'good':p.slope<12?'warn':'bad';
+  const cR = p.rough<0.35?'good':p.rough<0.62?'warn':'bad';
+  const cA = p.lattice>0.55?'good':p.lattice>0.28?'warn':'bad';
+
+  document.getElementById('siteName').textContent = fmtLat(SEL.lat)+' '+fmtLon(SEL.lon);
+  document.getElementById('siteRows').innerHTML =
+    row('海拔', p.elev.toFixed(2)+' km', cE) +
+    row('纬度', fmtLat(SEL.lat), cL) +
+    row('地形坡度', p.slope.toFixed(1)+'°', cS) +
+    row('地表粗糙度', (p.rough*100).toFixed(0)+' %', cR) +
+    row('晶格活跃度', (p.lattice*100).toFixed(0)+' %', cA);
+
+  document.getElementById('dvLab').textContent = dvLand.toFixed(2)+' km/s';
+  document.getElementById('dvRows').innerHTML =
+    row('气动减速可用度', (aero*100).toFixed(0)+' %', aero>.6?'good':aero>.3?'warn':'bad') +
+    row('动力下降 Δv', dvLand.toFixed(2)+' km/s', dvLand<1.5?'good':dvLand<2.8?'warn':'bad') +
+    row('对比：最省点位', '0.55 km/s') +
+    row('对比：奥山峰顶', '4.10 km/s');
+
+  const fails = [cE,cL,cS,cR].filter(x=>x==='bad').length;
+  const warns = [cE,cL,cS,cR].filter(x=>x==='warn').length;
+  const v = document.getElementById('verdict');
+  if(fails>=2){ v.className='verdict no';
+    v.innerHTML='<b>不可降落</b>两项以上硬指标不合格。这不是冒险，是送死。'; }
+  else if(fails===1){ v.className='verdict risk';
+    v.innerHTML='<b>高风险</b>一项硬指标不合格。'+(p.lattice>0.55?'但这里晶格活跃度很高 —— 这就是那个选择。':'而且这里也没什么可收的。'); }
+  else if(warns){ v.className='verdict risk';
+    v.innerHTML='<b>可降落 · 有代价</b>硬指标都过了，'+warns+' 项吃紧。'+(p.lattice>0.4?'产出还不错，值得。':'产出一般，先看看别处。'); }
+  else { v.className='verdict';
+    v.innerHTML='<b>理想点位</b>四项工程指标全绿。'+(p.lattice>0.45?'活跃度也不低 —— 这种地方不多。':'但活跃度低。安全的地方通常没东西可收。'); }
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+const gStage = document.getElementById('gStage');
+let dragging=false, moved=0, px0=0, py0=0;
+
+gStage.addEventListener('pointerdown', e=>{ dragging=true; moved=0; px0=e.clientX; py0=e.clientY;
+  gStage.setPointerCapture(e.pointerId); });
+gStage.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  const dx=e.clientX-px0, dy=e.clientY-py0;
+  moved += Math.abs(dx)+Math.abs(dy);
+  yaw   -= dx*0.006;
+  pitch  = Math.max(-1.35, Math.min(1.35, pitch + dy*0.005));
+  px0=e.clientX; py0=e.clientY;
+  drawGlobe();
+});
+gStage.addEventListener('pointerup', e=>{
+  dragging=false;
+  if(moved > 6) return;                       // 拖动不算点选
+  const r = gStage.getBoundingClientRect();
+  const cv = document.getElementById('gGL');
+  const W = cv.width, H = cv.height;
+  const fx = (e.clientX-r.left)/r.width  * W;
+  const fy = (1-(e.clientY-r.top)/r.height) * H;   // 转成自下而上
+  const uvx = (fx*2-W)/H, uvy = (fy*2-H)/H;
+  // 与着色器一致的射线
+  const rd0=[uvx,uvy,-1.6]; const rl=Math.hypot(...rd0);
+  const rd=[rd0[0]/rl, rd0[1]/rl, rd0[2]/rl];
+  const ro=[0,0,dist];
+  const b = ro[0]*rd[0]+ro[1]*rd[1]+ro[2]*rd[2];
+  const cc = ro[0]*ro[0]+ro[1]*ro[1]+ro[2]*ro[2] - 1;
+  const disc = b*b-cc;
+  if(disc<0) return;
+  const t = -b - Math.sqrt(disc);
+  const P = [ro[0]+rd[0]*t, ro[1]+rd[1]*t, ro[2]+rd[2]*t];
+  // toPlanet = transpose(rotX(pitch)*rotY(yaw)) = rotY(-yaw)*rotX(-pitch)
+  const cp=Math.cos(pitch), sp=Math.sin(pitch);
+  let v=[P[0], cp*P[1]-sp*P[2], sp*P[1]+cp*P[2]];
+  const cy=Math.cos(yaw), sy=Math.sin(yaw);
+  const Q=[cy*v[0]-sy*v[2], v[1], sy*v[0]+cy*v[2]];
+  const lat = Math.asin(Math.max(-1,Math.min(1,Q[1])))/D2R;
+  const lon = Math.atan2(Q[2],Q[0])/D2R;
+  SEL = { lat, lon:((lon%360)+360)%360 };
+  spin = false; document.getElementById('gSpin').classList.remove('on');
+  drawGlobe(); drawRegion(); updatePanel();
+});
+gStage.addEventListener('wheel', e=>{
+  e.preventDefault();
+  dist = Math.max(1.35, Math.min(6.5, dist + e.deltaY*0.0022));
+  drawGlobe();
+}, {passive:false});
+
+const rStage = document.getElementById('rStage');
+rStage.addEventListener('wheel', e=>{
+  e.preventDefault();
+  halfDeg = Math.max(0.12, Math.min(40, halfDeg * Math.exp(e.deltaY*0.0012)));
+  drawRegion();
+}, {passive:false});
+rStage.addEventListener('click', e=>{
+  const r = rStage.getBoundingClientRect();
+  const cv = document.getElementById('rGL');
+  const aspect = cv.width/cv.height;
+  const fx = (e.clientX-r.left)/r.width - 0.5;
+  const fy = 0.5 - (e.clientY-r.top)/r.height;
+  const clat = Math.max(0.12, Math.cos(SEL.lat*D2R));
+  SEL = { lat: SEL.lat + fy*halfDeg*2,
+          lon: ((SEL.lon + fx*halfDeg*2*aspect/clat)%360+360)%360 };
+  drawGlobe(); drawRegion(); updatePanel();
+});
+
+/* 按钮 */
+const gT=document.getElementById('gTopo'), gL=document.getElementById('gLat'),
+      gS=document.getElementById('gSpin'), rT=document.getElementById('rTopo'),
+      rL=document.getElementById('rLat');
+gT.onclick=()=>{ gLayer=0; gT.classList.add('on'); gL.classList.remove('on');
+  document.getElementById('globeLab').textContent='地形'; drawGlobe(); };
+gL.onclick=()=>{ gLayer=1; gL.classList.add('on'); gT.classList.remove('on');
+  document.getElementById('globeLab').textContent='晶格活跃度'; drawGlobe(); };
+gS.onclick=()=>{ spin=!spin; gS.classList.toggle('on', spin); };
+rT.onclick=()=>{ rLayer=0; rT.classList.add('on'); rL.classList.remove('on'); drawRegion(); };
+rL.onclick=()=>{ rLayer=1; rL.classList.add('on'); rT.classList.remove('on'); drawRegion(); };
+
+/* 快速跳转 */
+const jp = document.getElementById('jump');
+for(const [n,la,lo,hd] of JUMPS){
+  const b=document.createElement('button');
+  b.textContent=n;
+  b.onclick=()=>{ SEL={lat:la,lon:lo}; halfDeg=hd;
+    yaw = -lo*D2R - Math.PI/2; pitch = la*D2R;
+    spin=false; gS.classList.remove('on');
+    drawGlobe(); drawRegion(); updatePanel(); };
+  jp.appendChild(b);
+}
+
+addEventListener('resize', ()=>{ drawGlobe(); drawRegion(); });
+
+/* 自转 */
+let last = performance.now();
+function loop(now){
+  const dt = (now-last)/1000; last = now;
+  if(spin && !dragging){ yaw -= dt*0.10; drawGlobe(); }
+  requestAnimationFrame(loop);
+}
+
+/* 启动 */
+yaw = -226.2*D2R - Math.PI/2; pitch = 18.65*D2R;
+drawGlobe(); drawRegion(); updatePanel();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

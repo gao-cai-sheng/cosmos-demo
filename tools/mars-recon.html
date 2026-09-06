@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 火星概览 / 着陆点选择</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  body{ padding:16px; }
+
+  .top{ display:flex; justify-content:space-between; align-items:flex-end;
+        border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:14px; }
+  .top h1{ margin:0; font-size:14px; letter-spacing:.2em; color:var(--cy); font-weight:600; }
+  .top .sub{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin-top:3px; }
+  .top .right{ text-align:right; color:var(--dim); font-size:10px; letter-spacing:.12em; }
+
+  .grid{ display:grid; grid-template-columns:minmax(0,2.05fr) minmax(0,1fr); gap:14px; align-items:start; }
+  @media(max-width:1080px){ .grid{ grid-template-columns:minmax(0,1fr); } }
+  .grid > *{ min-width:0; }
+
+  .card{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:12px; min-width:0; }
+  .card h2{ margin:0 0 10px; font-size:10px; letter-spacing:.16em; color:var(--dim); font-weight:500;
+            display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .card h2 b{ color:var(--cy); font-weight:500; }
+
+  .mapwrap{ position:relative; }
+  canvas#map{ display:block; width:100%; height:auto; cursor:crosshair;
+              image-rendering:auto; border:1px solid var(--line); }
+  #busy{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+         background:rgba(5,6,10,.88); color:var(--cy); letter-spacing:.2em; font-size:11px; }
+
+  .seg{ display:flex; gap:4px; }
+  button{ font:inherit; font-size:10px; letter-spacing:.1em; padding:5px 9px; cursor:pointer;
+          background:rgba(255,255,255,.04); color:var(--ink);
+          border:1px solid var(--line); transition:.12s; }
+  button:hover{ background:rgba(111,227,245,.10); }
+  button.on{ background:var(--cy); color:#05060a; border-color:var(--cy); }
+
+  .row{ display:flex; justify-content:space-between; gap:10px; padding:3px 0; flex-wrap:wrap; }
+  .row span{ color:var(--dim); }
+  .row b{ font-weight:500; text-align:right; }
+  .row.bad b{ color:var(--bad); } .row.warn b{ color:var(--warn); } .row.good b{ color:var(--good); }
+
+  .verdict{ margin-top:10px; padding:10px; font-size:11px; line-height:1.6;
+            border-left:2px solid var(--good); background:rgba(126,224,168,.06); color:#bfe6d2; }
+  .verdict.no{ border-left-color:var(--bad); background:rgba(255,95,86,.07); color:#ffd0cc; }
+  .verdict.risk{ border-left-color:var(--warn); background:rgba(245,183,111,.07); color:#f2dcc0; }
+  .verdict b{ display:block; letter-spacing:.14em; margin-bottom:4px; }
+
+  .scale{ display:flex; align-items:center; gap:8px; margin-top:8px; color:var(--dim); font-size:10px; }
+  .scale canvas{ height:10px; flex:1; display:block; }
+
+  .foot{ margin-top:10px; color:var(--dim); font-size:10px; line-height:1.6; }
+  .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; color:var(--dim); font-size:10px; }
+  .legend s{ text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
+  .legend em{ width:7px; height:7px; border-radius:50%; display:inline-block; font-style:normal; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>火星概览 · 着陆点选择</h1>
+    <div class="sub">MU-7 CASSIOPEIA · 承包商编号 D-4471 · 合同 ANX-77</div>
+  </div>
+  <div class="right">
+    地形模型 · 参数化重建<br>
+    基准面 MOLA datum · 半径 3396.2 km
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- ============ 火星概览 ============ -->
+  <div class="card">
+    <h2>
+      <span>火星概览 <b id="modeLab">地形高程</b></span>
+      <span class="seg">
+        <button id="bTopo" class="on">地形</button>
+        <button id="bLat" >晶格活跃度</button>
+        <button id="bMark" class="on">地标</button>
+      </span>
+    </h2>
+    <div class="mapwrap">
+      <canvas id="map" width="1200" height="600"></canvas>
+      <div id="busy">正在重建地形…</div>
+    </div>
+    <div class="scale">
+      <span id="scaleLo">−8 km</span>
+      <canvas id="ramp" width="512" height="10"></canvas>
+      <span id="scaleHi">+21 km</span>
+    </div>
+    <div class="legend">
+      <s><em style="background:#7ee0a8"></em>历史着陆点</s>
+      <s><em style="background:#f5b76f"></em>主要地貌</s>
+      <s><em style="background:#6fe3f5"></em>候选区</s>
+      <s><em style="background:#fff"></em>当前选点</s>
+    </div>
+    <div class="foot">
+      在地图上点击任意位置选择着陆点。等距圆柱投影，东经 0–360°。<br>
+      地形由真实地貌坐标与尺寸参数化重建 —— 位置和规模是对的，米级细节是生成的。
+    </div>
+  </div>
+
+  <!-- ============ 状态显示 ============ -->
+  <div>
+    <div class="card">
+      <h2>选定着陆点 <b id="siteName">未选择</b></h2>
+      <div id="siteRows"></div>
+      <div class="verdict" id="verdict"><b>等待选点</b>在左侧地图上点击一个位置。</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>下降代价 <b id="dvLab">—</b></h2>
+      <div id="dvRows"></div>
+      <div class="foot">
+        火星大气稀薄，只有低海拔才够气动减速。<br>
+        海拔越高，越要靠动力下降硬扛 —— 这一项会直接吃掉航行操作台里的着陆余量。
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>选址标准</h2>
+      <div id="critRows"></div>
+      <div class="foot">
+        前四项是真实的工程约束。第五项是本次合同的目标 ——<br>
+        晶格在当年电流通过地层处长成，也就是火山与构造带，<br>
+        恰恰是最难落的地方。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   COSMOS 火星概览 / 着陆点选择
+   零依赖。
+
+   地形来源：真实地貌的坐标与尺寸参数化重建。
+   拿不到 MOLA 原始数据（沙箱网络限制），但奥林帕斯山在北纬 18.65°、
+   东经 226.2°、高 21.2 km、底径 600 km 这些是公开的确定数字，
+   照着搭出来的图是认得出来的。
+
+   要换成真数据：把 MOLA MEGDR 转成 Float32 高程数组，
+   替换 buildField() 即可，下面所有分析逻辑都不用动。
+   ============================================================ */
+
+const R_MARS = 3396.2;                       // km
+const W = 1200, H = 600;                     // 0.3°/px
+const D2R = Math.PI / 180;
+
+/* ============================================================
+   真实地貌参数
+   ============================================================ */
+const VOLCANOES = [
+  { n:'奥林帕斯山',   lat: 18.65, lon:226.2, h:21.2, r:300, cr:40, cd:3.0 },
+  { n:'阿斯克劳山',   lat: 11.8,  lon:255.5, h:18.2, r:230, cr:25, cd:2.5 },
+  { n:'帕弗尼斯山',   lat:  0.8,  lon:247.0, h:14.0, r:190, cr:25, cd:4.5 },
+  { n:'阿尔西亚山',   lat: -8.35, lon:239.9, h:17.7, r:240, cr:55, cd:1.5 },
+  { n:'埃律西昂山',   lat: 25.0,  lon:147.2, h:14.1, r:250, cr:8,  cd:0.5 },
+  { n:'阿尔巴山',     lat: 40.5,  lon:250.4, h: 6.8, r:800, cr:60, cd:1.0 }
+];
+
+const BASINS = [
+  { n:'希腊平原',     lat:-42.4, lon: 70.5, d:7.2, r:1150, rim:1.8 },
+  { n:'阿尔及尔平原', lat:-49.7, lon:316.0, d:5.2, r: 900, rim:1.5 },
+  { n:'伊西底斯平原', lat: 12.9, lon: 87.0, d:3.0, r: 750, rim:0.8 },
+  { n:'乌托邦平原',   lat: 46.7, lon:117.5, d:3.4, r:1600, rim:0.3 }
+];
+
+/* 水手谷：沿这条折线切下去 */
+const VALLES = [
+  [-7.5,258],[-9,268],[-11,278],[-13,290],[-14,300],[-13,310],[-11,318],[-9,325]
+];
+
+/* 塔尔西斯隆起：一整片区域性的巨大隆起 */
+const THARSIS = { lat:-2, lon:248, h:5.2, r:3400 };
+
+const LANDMARKS = [
+  { n:'奥林帕斯山', lat:18.65, lon:226.2, t:'f' },
+  { n:'水手谷',     lat:-13,   lon:295,   t:'f' },
+  { n:'希腊平原',   lat:-42.4, lon:70.5,  t:'f' },
+  { n:'塔尔西斯',   lat:0,     lon:248,   t:'f' },
+  { n:'乌托邦平原', lat:46.7,  lon:117.5, t:'f' },
+
+  { n:'海盗一号',   lat:22.48, lon:312.03, t:'l' },
+  { n:'海盗二号',   lat:47.97, lon:134.26, t:'l' },
+  { n:'探路者',     lat:19.13, lon:326.79, t:'l' },
+  { n:'勇气号',     lat:-14.57,lon:175.47, t:'l' },
+  { n:'机遇号',     lat:-1.95, lon:354.47, t:'l' },
+  { n:'好奇号',     lat:-4.59, lon:137.44, t:'l' },
+  { n:'洞察号',     lat:4.50,  lon:135.62, t:'l' },
+  { n:'毅力号',     lat:18.44, lon:77.45,  t:'l' },
+  { n:'祝融号',     lat:25.1,  lon:109.9,  t:'l' },
+
+  { n:'阿卡狄亚平原', lat:40, lon:190, t:'c' }
+];
+
+/* ============================================================
+   噪声
+   ============================================================ */
+function hash2(x, y){
+  let h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+}
+function vnoise(x, y){
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return (hash2(xi,yi)*(1-u) + hash2(xi+1,yi)*u) * (1-v)
+       + (hash2(xi,yi+1)*(1-u) + hash2(xi+1,yi+1)*u) * v;
+}
+function fbm(x, y, oct){
+  let s = 0, a = 0.5, f = 1;
+  for (let i = 0; i < oct; i++){ s += vnoise(x*f, y*f) * a; f *= 2.07; a *= 0.5; }
+  return s;
+}
+
+/* 球面大圆距离（km） */
+function gcDist(lat1, lon1, lat2, lon2){
+  const p1 = lat1*D2R, p2 = lat2*D2R;
+  const dp = (lat2-lat1)*D2R, dl = (lon2-lon1)*D2R;
+  const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2 * R_MARS * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/* ============================================================
+   高程场
+   —— 换真实 MOLA 数据时，只需替换这个函数的产出
+   ============================================================ */
+let FIELD = null, LATTICE = null, MINH = 0, MAXH = 0;
+
+function heightAt(lat, lon){
+  let h = 0;
+
+  /* 1. 南北二分：南半球高地、北半球低地，边界随经度摆动 */
+  const bLat = 22 * Math.cos((lon - 30) * D2R) + 6;
+  h += 1.6 - 4.6 / (1 + Math.exp(-(lat - bLat) / 9));
+
+  /* 2. 塔尔西斯区域性隆起 */
+  const dT = gcDist(lat, lon, THARSIS.lat, THARSIS.lon);
+  h += THARSIS.h * Math.exp(-((dT / THARSIS.r) ** 2) * 1.5);
+
+  /* 3. 盾状火山 */
+  for (const v of VOLCANOES){
+    const d = gcDist(lat, lon, v.lat, v.lon);
+    if (d < v.r * 2.2){
+      const f = Math.max(0, 1 - d / v.r);
+      h += v.h * Math.pow(f, 1.7);
+      if (d < v.cr) h -= v.cd * (1 - (d / v.cr) ** 2);   // 火山口
+    }
+  }
+
+  /* 4. 撞击盆地 */
+  for (const b of BASINS){
+    const d = gcDist(lat, lon, b.lat, b.lon);
+    if (d < b.r * 2.4){
+      h -= b.d * Math.exp(-((d / b.r) ** 2) * 1.6);
+      h += b.rim * Math.exp(-(((d - b.r * 1.05) / (b.r * 0.30)) ** 2));
+    }
+  }
+
+  /* 5. 水手谷：到折线的最近距离 */
+  let dv = 1e9;
+  for (let i = 0; i < VALLES.length - 1; i++){
+    const [a1,o1] = VALLES[i], [a2,o2] = VALLES[i+1];
+    const steps = 7;
+    for (let s = 0; s <= steps; s++){
+      const t = s / steps;
+      dv = Math.min(dv, gcDist(lat, lon, a1 + (a2-a1)*t, o1 + (o2-o1)*t));
+    }
+  }
+  if (dv < 400) h -= 7.0 * Math.exp(-((dv / 115) ** 2) * 1.9);
+
+  /* 6. 细节噪声：南半球高地更粗糙（古老、坑多） */
+  const nx = (lon / 360) * 46, ny = ((lat + 90) / 180) * 23;
+  const old = 1 / (1 + Math.exp((lat - bLat) / 9));           // 南半球→1
+  h += (fbm(nx, ny, 5) - 0.5) * (1.1 + old * 1.7);
+  h += (fbm(nx * 5.3, ny * 5.3, 3) - 0.5) * (0.35 + old * 0.55);
+
+  return h;
+}
+
+/* 晶格活跃度：当年电流走过的地方 —— 火山与构造带 */
+function latticeAt(lat, lon, rough){
+  let a = 0;
+  for (const v of VOLCANOES){
+    const d = gcDist(lat, lon, v.lat, v.lon);
+    a = Math.max(a, Math.exp(-((d / (v.r * 1.5)) ** 2)) * (v.h / 21.2));
+  }
+  let dv = 1e9;
+  for (let i = 0; i < VALLES.length - 1; i++){
+    const [a1,o1] = VALLES[i], [a2,o2] = VALLES[i+1];
+    for (let s = 0; s <= 5; s++){
+      const t = s / 5;
+      dv = Math.min(dv, gcDist(lat, lon, a1 + (a2-a1)*t, o1 + (o2-o1)*t));
+    }
+  }
+  a = Math.max(a, Math.exp(-((dv / 320) ** 2)) * 0.85);
+  const dT = gcDist(lat, lon, THARSIS.lat, THARSIS.lon);
+  a = Math.max(a, Math.exp(-((dT / 2600) ** 2)) * 0.45);
+  return Math.min(1, a * 0.86 + rough * 0.30);
+}
+
+function buildField(){
+  FIELD = new Float32Array(W * H);
+  LATTICE = new Float32Array(W * H);
+  let lo = 1e9, hi = -1e9;
+  for (let y = 0; y < H; y++){
+    const lat = 90 - (y + 0.5) / H * 180;
+    for (let x = 0; x < W; x++){
+      const lon = (x + 0.5) / W * 360;
+      const h = heightAt(lat, lon);
+      FIELD[y*W + x] = h;
+      if (h < lo) lo = h; if (h > hi) hi = h;
+    }
+  }
+  MINH = lo; MAXH = hi;
+  // 粗糙度用局部高差近似，再据此算活跃度
+  for (let y = 0; y < H; y++){
+    const lat = 90 - (y + 0.5) / H * 180;
+    for (let x = 0; x < W; x++){
+      const lon = (x + 0.5) / W * 360;
+      LATTICE[y*W + x] = latticeAt(lat, lon, roughIdx(x, y));
+    }
+  }
+}
+
+function idx(x, y){
+  x = ((x % W) + W) % W;
+  y = Math.max(0, Math.min(H - 1, y));
+  return y * W + x;
+}
+function roughIdx(x, y){
+  const c = FIELD[idx(x,y)];
+  let s = 0;
+  s += Math.abs(FIELD[idx(x+1,y)] - c);
+  s += Math.abs(FIELD[idx(x-1,y)] - c);
+  s += Math.abs(FIELD[idx(x,y+1)] - c);
+  s += Math.abs(FIELD[idx(x,y-1)] - c);
+  return Math.min(1, s / 2.6);
+}
+/* 坡度（度）：像素间实际距离随纬度收缩 */
+function slopeAt(x, y){
+  const lat = 90 - (y + 0.5) / H * 180;
+  const dxKm = (360 / W) * D2R * R_MARS * Math.max(0.08, Math.cos(lat * D2R));
+  const dyKm = (180 / H) * D2R * R_MARS;
+  const gx = (FIELD[idx(x+1,y)] - FIELD[idx(x-1,y)]) / (2 * dxKm);
+  const gy = (FIELD[idx(x,y+1)] - FIELD[idx(x,y-1)]) / (2 * dyKm);
+  return Math.atan(Math.hypot(gx, gy)) / D2R;
+}
+
+/* ============================================================
+   配色
+   ============================================================ */
+function topoColor(h){
+  // MOLA 式测高配色：低—紫蓝，中—青绿黄，高—橙红白
+  const stops = [
+    [-8.5, 40, 20, 70], [-5, 30, 60, 130], [-2.5, 30, 120, 150],
+    [0, 40, 150, 110], [1.5, 150, 165, 75], [4, 200, 150, 60],
+    [8, 205, 100, 55], [13, 190, 70, 60], [18, 215, 150, 150], [22, 245, 240, 240]
+  ];
+  for (let i = 0; i < stops.length - 1; i++){
+    const a = stops[i], b = stops[i+1];
+    if (h <= b[0]){
+      const t = Math.max(0, Math.min(1, (h - a[0]) / (b[0] - a[0])));
+      return [a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t, a[3]+(b[3]-a[3])*t];
+    }
+  }
+  const l = stops[stops.length-1];
+  return [l[1], l[2], l[3]];
+}
+function latColor(a){
+  // 活跃度热力：暗青 → 青 → 橙 → 白
+  if (a < 0.35){ const t = a/0.35; return [10+t*20, 30+t*90, 45+t*110]; }
+  if (a < 0.70){ const t = (a-0.35)/0.35; return [30+t*195, 120+t*60, 155-t*60]; }
+  const t = (a-0.70)/0.30; return [225+t*30, 180+t*70, 95+t*150];
+}
+
+/* ============================================================
+   绘制
+   ============================================================ */
+const cv = document.getElementById('map'), cx = cv.getContext('2d');
+let MODE = 'topo', SHOWMARK = true, SEL = null;
+
+function render(){
+  const img = cx.createImageData(W, H);
+  const d = img.data;
+  const sun = [-0.55, -0.62, 0.56];            // 光照方向，制造起伏感
+  for (let y = 0; y < H; y++){
+    const lat = 90 - (y + 0.5) / H * 180;
+    const dxKm = (360 / W) * D2R * R_MARS * Math.max(0.08, Math.cos(lat * D2R));
+    const dyKm = (180 / H) * D2R * R_MARS;
+    for (let x = 0; x < W; x++){
+      const i = y*W + x;
+      const h = FIELD[i];
+      let c = MODE === 'topo' ? topoColor(h) : latColor(LATTICE[i]);
+
+      // 山体阴影
+      const gx = (FIELD[idx(x+1,y)] - FIELD[idx(x-1,y)]) / (2*dxKm);
+      const gy = (FIELD[idx(x,y+1)] - FIELD[idx(x,y-1)]) / (2*dyKm);
+      let nx = -gx*40, ny = -gy*40, nz = 1;
+      const il = 1/Math.hypot(nx,ny,nz);
+      const sh = Math.max(0.30, Math.min(1.55,
+        (nx*il*sun[0] + ny*il*sun[1] + nz*il*sun[2]) * 1.25 + 0.42));
+
+      const o = i*4;
+      d[o]   = Math.min(255, c[0]*sh);
+      d[o+1] = Math.min(255, c[1]*sh);
+      d[o+2] = Math.min(255, c[2]*sh);
+      d[o+3] = 255;
+    }
+  }
+  cx.putImageData(img, 0, 0);
+
+  /* 经纬网 */
+  cx.strokeStyle = 'rgba(255,255,255,.10)'; cx.lineWidth = 1;
+  for (let l = 0; l <= 360; l += 30){
+    const x = l/360*W; cx.beginPath(); cx.moveTo(x,0); cx.lineTo(x,H); cx.stroke();
+  }
+  for (let l = -60; l <= 60; l += 30){
+    const y = (90-l)/180*H; cx.beginPath(); cx.moveTo(0,y); cx.lineTo(W,y); cx.stroke();
+  }
+  cx.strokeStyle = 'rgba(255,255,255,.22)';
+  cx.beginPath(); cx.moveTo(0,H/2); cx.lineTo(W,H/2); cx.stroke();
+
+  if (SHOWMARK) drawMarks();
+  if (SEL) drawSel();
+}
+
+function toXY(lat, lon){ return [ (((lon%360)+360)%360)/360*W, (90-lat)/180*H ]; }
+
+function drawMarks(){
+  cx.font = '11px ui-monospace,Menlo,monospace';
+  for (const m of LANDMARKS){
+    const [x,y] = toXY(m.lat, m.lon);
+    const col = m.t === 'l' ? '#7ee0a8' : m.t === 'c' ? '#6fe3f5' : '#f5b76f';
+    cx.fillStyle = col;
+    if (m.t === 'f'){
+      cx.globalAlpha = .9;
+      cx.beginPath(); cx.arc(x,y,3.5,0,7); cx.fill();
+    } else {
+      cx.beginPath(); cx.moveTo(x,y-4); cx.lineTo(x+4,y); cx.lineTo(x,y+4); cx.lineTo(x-4,y);
+      cx.closePath(); cx.fill();
+    }
+    cx.globalAlpha = 1;
+    cx.strokeStyle = 'rgba(0,0,0,.75)'; cx.lineWidth = 3;
+    cx.strokeText(m.n, x+7, y+4);
+    cx.fillText(m.n, x+7, y+4);
+  }
+}
+function drawSel(){
+  const [x,y] = toXY(SEL.lat, SEL.lon);
+  cx.strokeStyle = '#fff'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.arc(x,y,9,0,7); cx.stroke();
+  cx.beginPath(); cx.moveTo(x-15,y); cx.lineTo(x-4,y);
+  cx.moveTo(x+4,y); cx.lineTo(x+15,y);
+  cx.moveTo(x,y-15); cx.lineTo(x,y-4);
+  cx.moveTo(x,y+4); cx.lineTo(x,y+15); cx.stroke();
+}
+
+/* ============================================================
+   着陆点评估
+   ============================================================ */
+function evaluate(lat, lon){
+  const x = Math.floor((((lon%360)+360)%360)/360*W);
+  const y = Math.floor((90-lat)/180*H);
+  const i = idx(x,y);
+  const elev = FIELD[i];
+  const slope = slopeAt(x,y);
+  const rough = roughIdx(x,y);
+  const lattice = LATTICE[i];
+
+  /* 下降 Δv：低海拔能气动减速，高海拔只能硬烧 */
+  const aero = Math.max(0, Math.min(1, (2.0 - elev) / 7.0));      // 1=可充分气动减速
+  const dvLand = 0.55 + 3.55 * (1 - aero);
+
+  /* 各项判定（前四项是真实工程约束） */
+  const cElev  = elev < 1 ? 'good' : elev < 4 ? 'warn' : 'bad';
+  const cLat   = Math.abs(lat) < 30 ? 'good' : Math.abs(lat) < 50 ? 'warn' : 'bad';
+  const cSlope = slope < 5 ? 'good' : slope < 12 ? 'warn' : 'bad';
+  const cRough = rough < 0.35 ? 'good' : rough < 0.62 ? 'warn' : 'bad';
+  const cLat2  = lattice > 0.55 ? 'good' : lattice > 0.28 ? 'warn' : 'bad';
+
+  const fails = [cElev,cLat,cSlope,cRough].filter(c=>c==='bad').length;
+  const warns = [cElev,cLat,cSlope,cRough].filter(c=>c==='warn').length;
+
+  return { lat, lon, elev, slope, rough, lattice, dvLand, aero,
+           cElev, cLat, cSlope, cRough, cLat2, fails, warns };
+}
+
+function show(e){
+  document.getElementById('siteName').textContent =
+    fmtLat(e.lat) + ' ' + fmtLon(e.lon);
+
+  document.getElementById('siteRows').innerHTML =
+    row('海拔', e.elev.toFixed(2) + ' km', e.cElev) +
+    row('纬度', fmtLat(e.lat), e.cLat) +
+    row('地形坡度', e.slope.toFixed(1) + '°', e.cSlope) +
+    row('地表粗糙度', (e.rough*100).toFixed(0) + ' %', e.cRough) +
+    row('晶格活跃度', (e.lattice*100).toFixed(0) + ' %', e.cLat2);
+
+  document.getElementById('dvLab').textContent = e.dvLand.toFixed(2) + ' km/s';
+  document.getElementById('dvRows').innerHTML =
+    row('气动减速可用度', (e.aero*100).toFixed(0) + ' %', e.aero > .6 ? 'good' : e.aero > .3 ? 'warn' : 'bad') +
+    row('动力下降 Δv', e.dvLand.toFixed(2) + ' km/s', e.dvLand < 1.5 ? 'good' : e.dvLand < 2.8 ? 'warn' : 'bad') +
+    row('对比：最省点位', '0.55 km/s') +
+    row('对比：奥山峰顶', '4.10 km/s');
+
+  document.getElementById('critRows').innerHTML =
+    crit('海拔 < +1 km', '大气够厚才能开伞减速', e.cElev) +
+    crit('纬度 |φ| < 30°', '光照与温度，越极地越难过冬', e.cLat) +
+    crit('坡度 < 5°', '着陆腿翻覆风险', e.cSlope) +
+    crit('粗糙度 < 35%', '岩石密度，砸穿底板', e.cRough) +
+    crit('晶格活跃度 > 55%', '本次合同的目标产物', e.cLat2);
+
+  const v = document.getElementById('verdict');
+  if (e.fails >= 2){
+    v.className = 'verdict no';
+    v.innerHTML = '<b>不可降落</b>' + reasons(e) + '两项以上硬指标不合格。这不是冒险，是送死。';
+  } else if (e.fails === 1){
+    v.className = 'verdict risk';
+    v.innerHTML = '<b>高风险</b>' + reasons(e) +
+      (e.lattice > 0.55 ? '但这里晶格活跃度很高。这就是那个选择。' : '而且这里也没什么可收的。换个点。');
+  } else if (e.warns){
+    v.className = 'verdict risk';
+    v.innerHTML = '<b>可降落 · 有代价</b>硬指标都过了，' + e.warns + ' 项吃紧。' +
+      (e.lattice > 0.4 ? '产出还不错，值得。' : '产出一般，先看看别处。');
+  } else {
+    v.className = 'verdict';
+    v.innerHTML = '<b>理想点位</b>四项工程指标全绿。' +
+      (e.lattice > 0.45
+        ? '而且晶格活跃度不低 —— 这种地方不多，标记下来。'
+        : '但晶格活跃度低。安全的地方通常没东西可收，这是这颗星的规矩。');
+  }
+}
+
+function reasons(e){
+  const r = [];
+  if (e.cElev === 'bad') r.push('海拔太高，开不了伞');
+  if (e.cLat === 'bad') r.push('纬度太高，撑不过夜');
+  if (e.cSlope === 'bad') r.push('坡度过陡，会翻');
+  if (e.cRough === 'bad') r.push('地表太碎，会砸穿');
+  return r.length ? r.join('；') + '。' : '';
+}
+function row(k, v, cls){
+  return '<div class="row' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>';
+}
+function crit(k, why, cls){
+  const mk = cls === 'good' ? '✓' : cls === 'warn' ? '△' : '✕';
+  return '<div class="row ' + cls + '"><span>' + k +
+         '<i style="display:block;font-style:normal;opacity:.65;font-size:10px">' + why + '</i></span><b>' + mk + '</b></div>';
+}
+function fmtLat(v){ return Math.abs(v).toFixed(2) + '°' + (v >= 0 ? 'N' : 'S'); }
+function fmtLon(v){ return (((v%360)+360)%360).toFixed(2) + '°E'; }
+
+/* ============================================================
+   交互
+   ============================================================ */
+cv.addEventListener('click', (ev) => {
+  const r = cv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) / r.width * W;
+  const y = (ev.clientY - r.top) / r.height * H;
+  const lat = 90 - y / H * 180, lon = x / W * 360;
+  SEL = { lat, lon };
+  show(evaluate(lat, lon));
+  render();
+});
+
+const bT = document.getElementById('bTopo'), bL = document.getElementById('bLat'),
+      bM = document.getElementById('bMark');
+bT.onclick = () => { MODE='topo'; bT.classList.add('on'); bL.classList.remove('on');
+  document.getElementById('modeLab').textContent='地形高程';
+  document.getElementById('scaleLo').textContent='−8 km';
+  document.getElementById('scaleHi').textContent='+21 km'; drawRamp(); render(); };
+bL.onclick = () => { MODE='lat'; bL.classList.add('on'); bT.classList.remove('on');
+  document.getElementById('modeLab').textContent='晶格活跃度';
+  document.getElementById('scaleLo').textContent='0 %';
+  document.getElementById('scaleHi').textContent='100 %'; drawRamp(); render(); };
+bM.onclick = () => { SHOWMARK = !SHOWMARK; bM.classList.toggle('on', SHOWMARK); render(); };
+
+function drawRamp(){
+  const rc = document.getElementById('ramp'), rx = rc.getContext('2d');
+  const im = rx.createImageData(512, 10);
+  for (let x = 0; x < 512; x++){
+    const t = x / 511;
+    const c = MODE === 'topo' ? topoColor(-8.5 + t * 30.5) : latColor(t);
+    for (let y = 0; y < 10; y++){
+      const o = (y*512 + x) * 4;
+      im.data[o]=c[0]; im.data[o+1]=c[1]; im.data[o+2]=c[2]; im.data[o+3]=255;
+    }
+  }
+  rx.putImageData(im, 0, 0);
+}
+
+/* ---- 启动 ---- */
+setTimeout(() => {
+  const t0 = performance.now();
+  buildField();
+  drawRamp();
+  render();
+  document.getElementById('busy').style.display = 'none';
+  console.log('地形重建耗时 ' + (performance.now()-t0).toFixed(0) + ' ms，高程范围 '
+    + MINH.toFixed(1) + ' … ' + MAXH.toFixed(1) + ' km');
+  // 默认落在阿卡狄亚平原 —— SpaceX 研究最多的候选区
+  SEL = { lat:40, lon:190 };
+  show(evaluate(40, 190));
+  render();
+}, 60);
+</script>
+</body>
+</html>

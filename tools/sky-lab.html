@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 天空实验室</title>
+<style>
+  :root { --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+              font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; overflow:hidden; }
+  canvas { display:block; position:fixed; inset:0; width:100%; height:100%; }
+
+  .panel { position:fixed; top:16px; left:16px; width:272px; z-index:10;
+           background:rgba(6,10,14,.82); border:1px solid rgba(111,227,245,.18);
+           backdrop-filter:blur(8px); padding:14px; max-height:calc(100vh - 32px); overflow:auto; }
+  .panel h1 { margin:0 0 2px; font-size:13px; letter-spacing:.16em; color:var(--cy); font-weight:600; }
+  .panel .sub { color:var(--dim); font-size:10px; letter-spacing:.1em; margin-bottom:12px; }
+
+  .lab { color:var(--dim); font-size:10px; letter-spacing:.14em; margin:14px 0 6px; }
+  .bodies { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  button { font:inherit; font-size:10px; letter-spacing:.1em; padding:6px 4px; cursor:pointer;
+           background:rgba(255,255,255,.04); color:var(--ink);
+           border:1px solid rgba(111,227,245,.16); transition:.12s; }
+  button:hover { background:rgba(111,227,245,.10); }
+  button.on { background:var(--cy); color:#05060a; border-color:var(--cy); }
+  .seg { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  input[type=range] { width:100%; accent-color:var(--cy); }
+  .val { float:right; color:var(--cy); }
+
+  .facts { margin-top:14px; padding-top:12px; border-top:1px solid rgba(111,227,245,.14); }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .row span { color:var(--dim); }
+  .row b { font-weight:500; text-align:right; }
+  .note { margin-top:10px; padding:8px; background:rgba(111,227,245,.05);
+          border-left:2px solid var(--cy); color:#a8c4ce; font-size:10.5px; line-height:1.55; }
+  .note.drama { border-left-color:#f5b76f; background:rgba(245,183,111,.06); }
+
+  .hint { position:fixed; bottom:14px; left:16px; color:var(--dim); font-size:10px; z-index:10; }
+
+  /* 出错时不再静默 —— 这是上一版最大的问题 */
+  #err { position:fixed; inset:auto 16px 16px auto; max-width:520px; z-index:99;
+         background:#2a0d0d; border:1px solid #ff5f56; color:#ffd9d6; padding:12px 14px;
+         font-size:11px; line-height:1.6; white-space:pre-wrap; display:none; }
+  #err b { color:#ff5f56; display:block; margin-bottom:6px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel">
+  <h1>天空实验室</h1>
+  <div class="sub">COSMOS · 美术方向对照</div>
+
+  <div class="lab">天体</div>
+  <div class="bodies" id="bodies"></div>
+
+  <div class="lab">调色档位</div>
+  <div class="seg">
+    <button id="mReal" class="on">实测</button>
+    <button id="mDrama">戏剧化</button>
+  </div>
+
+  <div class="lab">太阳高度角 <span class="val" id="sunVal">18°</span></div>
+  <input type="range" id="sun" min="-6" max="70" step="1" value="18" />
+
+  <div class="facts" id="facts"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<div class="hint">拖动旋转视角 · 滚轮改变视野</div>
+<div id="err"></div>
+
+<script>
+/* ============================================================
+   COSMOS 天空实验室
+   零依赖。整个场景是一个全屏片元着色器：光线步进一个高度场地表，
+   加上按天体参数化的天空。不需要 three.js，不需要服务器，
+   双击这个文件就能开。
+   ============================================================ */
+
+/* ---- 任何错误都要看得见 ---- */
+const errBox = document.getElementById('err');
+function fail(title, detail) {
+  errBox.style.display = 'block';
+  errBox.innerHTML = '<b>' + title + '</b>' + String(detail || '');
+}
+addEventListener('error', (e) => fail('脚本出错', e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')));
+
+/* ============================================================
+   天体档案
+
+   real  —— 以 NASA 公开观测为起点
+   drama —— 为了游戏好看往上推过的版本
+   why   —— 推的理由。允许改，但要说得出为什么。
+   ============================================================ */
+const BODIES = {
+  luna: {
+    name:'月球', full:'月球 · 阿那克萨哥拉', g:1.62, au:1.00,
+    real:{ zen:[0,0,0], hor:[0,0,0], haze:0,
+           glow:[0.20,0.20,0.22], tight:9.0, gstr:0.0, stars:1.0,
+           sun:[1.0,0.98,0.95], sunI:1.00, grd:[0.44,0.42,0.39], rough:1.0, alb:0.12,
+           comp:{ col:[0.35,0.52,0.78], size:0.030, az:2.40, el:0.14, name:'地球' } },
+    drama:{ zen:[0.012,0.016,0.028], hor:[0.030,0.036,0.050], haze:1,
+           glow:[0.55,0.62,0.75], tight:2.8, gstr:1.1, stars:0.55,
+           sun:[1.0,0.97,0.92], sunI:1.15, grd:[0.48,0.46,0.43], rough:1.0, alb:0.12,
+           comp:{ col:[0.42,0.60,0.88], size:0.045, az:2.40, el:0.14, name:'地球' } },
+    why:'真月球天空是纯黑，星星和地面亮度差几个数量级，屏幕上只会看到一块死黑。戏剧化版加了极淡的天顶辉光和一圈日冕散射 —— 物理上可以解释成静电悬浮尘，而原作设定里本来就有这条。没编新东西，只是把已有的用足。'
+  },
+
+  mars: {
+    name:'火星', full:'火星', g:3.72, au:1.52,
+    real:{ zen:[0.40,0.30,0.22], hor:[0.62,0.46,0.31], haze:1,
+           glow:[0.30,0.48,0.85], tight:4.2, gstr:1.4, stars:0.0,
+           sun:[1.0,0.93,0.82], sunI:0.65, grd:[0.48,0.28,0.17], rough:0.8, alb:0.25,
+           comp:null },
+    drama:{ zen:[0.32,0.23,0.19], hor:[0.80,0.53,0.30], haze:1,
+           glow:[0.24,0.52,1.00], tight:2.0, gstr:2.8, stars:0.12,
+           sun:[1.0,0.90,0.75], sunI:0.75, grd:[0.56,0.29,0.16], rough:0.8, alb:0.25,
+           comp:null },
+    why:'火星落日是蓝的 —— 尘粒尺寸正好让蓝光更容易穿透，散射后又紧贴太阳方向，其余天空是黄橙色。这是真的，而且比任何虚构都好看。戏剧化只是把蓝斑收得更紧更亮，让它在低太阳角时像一枚冷光核心。'
+  },
+
+  europa: {
+    name:'木卫二', full:'木卫二', g:1.31, au:5.20,
+    real:{ zen:[0,0,0], hor:[0,0,0], haze:0,
+           glow:[0.18,0.20,0.24], tight:9.0, gstr:0.0, stars:1.0,
+           sun:[1.0,0.98,0.96], sunI:0.22, grd:[0.80,0.84,0.90], rough:0.45, alb:0.68,
+           comp:{ col:[0.78,0.66,0.52], size:0.30, az:0.90, el:0.40, name:'木星' } },
+    drama:{ zen:[0.020,0.026,0.042], hor:[0.050,0.060,0.090], haze:1,
+           glow:[0.40,0.50,0.70], tight:3.0, gstr:0.9, stars:0.70,
+           sun:[1.0,0.98,0.96], sunI:0.36, grd:[0.84,0.88,0.95], rough:0.45, alb:0.68,
+           comp:{ col:[0.90,0.76,0.60], size:0.36, az:0.90, el:0.40, name:'木星' } },
+    why:'木卫二是全太阳系最亮的地表之一（反照率 0.68，月球才 0.12），冰是蓝白的，裂缝因为含硫酸盐是红褐色 —— 天然的高对比配色。木星占满小半个天空，是真实存在的第二光源；戏剧化版把它的补光调强，让阴影里也有暖色。'
+  },
+
+  ceres: {
+    name:'谷神星', full:'谷神星', g:0.27, au:2.77,
+    real:{ zen:[0,0,0], hor:[0,0,0], haze:0,
+           glow:[0.16,0.16,0.18], tight:9.0, gstr:0.0, stars:1.0,
+           sun:[1.0,0.99,0.97], sunI:0.45, grd:[0.19,0.18,0.17], rough:1.25, alb:0.09,
+           comp:null },
+    drama:{ zen:[0.010,0.012,0.018], hor:[0.025,0.028,0.040], haze:1,
+           glow:[0.45,0.48,0.55], tight:3.4, gstr:0.8, stars:0.75,
+           sun:[1.0,0.99,0.97], sunI:0.58, grd:[0.24,0.23,0.22], rough:1.25, alb:0.09,
+           comp:null },
+    why:'谷神星非常黑（反照率 0.09，比沥青还暗），但奥卡托坑里有碳酸钠盐盘，是全星最亮的东西，看上去像脏雪。这种"极暗地表上突然一块惨白"的反差，正好是设定里"被收割过的星球"该有的样子：暗，且有人动过的痕迹在发亮。'
+  },
+
+  titan: {
+    name:'土卫六', full:'土卫六', g:1.35, au:9.54,
+    real:{ zen:[0.34,0.22,0.09], hor:[0.46,0.30,0.12], haze:1,
+           glow:[0.55,0.38,0.16], tight:0.5, gstr:0.7, stars:0.0,
+           sun:[1.0,0.82,0.55], sunI:0.12, grd:[0.30,0.21,0.13], rough:0.35, alb:0.20,
+           comp:null },
+    drama:{ zen:[0.42,0.26,0.10], hor:[0.66,0.41,0.16], haze:1,
+           glow:[0.88,0.60,0.25], tight:0.3, gstr:1.4, stars:0.0,
+           sun:[1.0,0.80,0.50], sunI:0.22, grd:[0.35,0.25,0.14], rough:0.35, alb:0.20,
+           comp:{ col:[0.55,0.48,0.38], size:0.16, az:3.60, el:0.30, name:'土星（雾中）' } },
+    why:'土卫六的橙色浓雾把太阳糊成一团散光，地表照度大约只有地球白天的千分之一，没有影子、没有星星、对比度极低 —— 真实，但屏幕上几乎没法看。戏剧化版提亮了近两倍，还让土星隐约透出雾来。这是全项目最需要撒谎的一颗星。'
+  }
+};
+const ORDER = ['luna','mars','europa','ceres','titan'];
+let cur = 'luna', mode = 'real', sunEl = 18;
+
+/* ============================================================
+   WebGL2
+   ============================================================ */
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', { antialias:false, powerPreference:'high-performance' });
+if (!gl) {
+  fail('WebGL2 不可用', '这台机器或这个浏览器没有开启 WebGL2。\n试试 Chrome / Edge，或在浏览器设置里打开硬件加速。');
+  throw new Error('no webgl2');
+}
+
+const VS = `#version 300 es
+out vec2 vUv;
+void main(){
+  // 用一个覆盖全屏的大三角形，比两个三角形省一条边
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outC;
+
+uniform vec2  uRes;
+uniform vec3  uSunDir, uZen, uHor, uGlow, uSunCol, uGrd, uCompCol, uCompDir;
+uniform float uHaze, uTight, uGstr, uStars, uSunI, uAlb, uRough, uCompSize, uVein;
+uniform vec3  uCamPos, uCamFwd, uCamRight, uCamUp;
+uniform float uFov;
+
+/* ---------- 噪声 ---------- */
+float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
+float n2(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h2(i), h2(i+vec2(1,0)), f.x),
+             mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y);
+}
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++){ s += n2(p) * a; p *= 2.03; a *= 0.5; }
+  return s;
+}
+
+/* ---------- 地形高度场 ---------- */
+float terr(vec2 p){
+  return (fbm(p * 0.030) - 0.5) * 9.0 * uRough
+       + (fbm(p * 0.180) - 0.5) * 0.9 * uRough;
+}
+
+/* ---------- 天空 ---------- */
+float starField(vec3 d){
+  vec3 g = floor(d * 200.0);
+  float r = fract(sin(dot(g, vec3(127.1,311.7,74.7))) * 43758.5453);
+  if (r < 0.9950) return 0.0;
+  vec3 c = (g + 0.5) / 200.0;
+  float f = max(0.0, 1.0 - length(normalize(c) - d) * 560.0);
+  return pow(f, 2.0) * (0.30 + fract(r * 91.7) * 0.70);
+}
+
+vec3 skyCol(vec3 d){
+  float up = clamp(d.y, 0.0, 1.0);
+  float ct = dot(d, uSunDir);
+
+  vec3 col = mix(uHor, uZen, pow(up, 0.55)) * uHaze;
+  col *= smoothstep(-0.22, 0.05, d.y);                 // 地平线以下压暗
+
+  // 前向散射：火星的蓝斑靠这一项
+  col += uGlow * pow(max(ct, 0.0), uTight * 10.0) * uGstr * 0.30;
+  col += uGlow * pow(max(ct, 0.0), 3.0) * uGstr * 0.05 * uHaze;
+
+  col += vec3(starField(d)) * uStars * (1.0 - uHaze * 0.35);
+
+  // 伴星
+  if (uCompSize > 0.0) {
+    float cd = dot(d, uCompDir);
+    float lim = 1.0 - uCompSize * uCompSize * 0.5;
+    float disc = smoothstep(lim - 0.004, lim, cd);
+    float ph = clamp(dot(uCompDir, uSunDir) * 0.45 + 0.70, 0.18, 1.0);
+    col = mix(col, uCompCol * ph, disc);
+  }
+
+  // 日面
+  col = mix(col, uSunCol * 5.0, smoothstep(0.99965, 0.99988, ct));
+  return col;
+}
+
+void main(){
+  vec2 uv = (vUv * uRes * 2.0 - uRes) / uRes.y;
+  vec3 rd = normalize(uCamFwd + uCamRight * uv.x * uFov + uCamUp * uv.y * uFov);
+  vec3 ro = uCamPos;
+
+  vec3 amb = uHaze > 0.5 ? mix(uHor, uZen, 0.5) * 0.55 : uZen * 0.35 + vec3(0.004);
+  if (uCompSize > 0.25) amb += uCompCol * 0.10;        // 木星补光
+
+  vec3 col;
+  float t = 0.0;
+  bool hit = false;
+
+  if (rd.y < 0.30) {                                    // 只有朝下才可能打中地面
+    float tmax = 900.0;
+    for (int i = 0; i < 160; i++){
+      vec3 p = ro + rd * t;
+      float h = p.y - terr(p.xz);
+      if (h < 0.0025 * t) { hit = true; break; }
+      t += max(h * 0.55, 0.02 * t + 0.03);
+      if (t > tmax) break;
+    }
+  }
+
+  if (hit) {
+    vec3 p = ro + rd * t;
+    float e = 0.02 * t + 0.02;
+    vec3 n = normalize(vec3(
+      terr(p.xz - vec2(e,0)) - terr(p.xz + vec2(e,0)),
+      2.0 * e,
+      terr(p.xz - vec2(0,e)) - terr(p.xz + vec2(0,e))
+    ));
+
+    vec3 base = uGrd;
+
+    // 木卫二：红褐色盐分裂缝
+    if (uVein > 0.5) {
+      float v = abs(n2(p.xz * 0.055) - 0.5) * 2.0;
+      base = mix(base, vec3(0.52,0.26,0.17), (1.0 - smoothstep(0.0, 0.16, v)) * 0.8);
+    }
+
+    float ndl = max(dot(n, uSunDir), 0.0);
+
+    // 硬阴影：朝太阳再走一段，看会不会被挡住
+    float sh = 1.0;
+    if (ndl > 0.0) {
+      float st = 0.35;
+      for (int i = 0; i < 26; i++){
+        vec3 q = p + uSunDir * st;
+        if (q.y - terr(q.xz) < 0.0) { sh = 0.0; break; }
+        st += 0.55 + st * 0.10;
+        if (st > 45.0) break;
+      }
+    }
+
+    // 月壤类地表的冲日效应：正对光源方向异常亮
+    float opp = pow(max(dot(uSunDir, n), 0.0), 6.0) * 0.22;
+
+    col = base * (uSunCol * uSunI * (ndl * sh + opp) + amb);
+    col *= 0.35 + uAlb * 2.6;
+
+    // 远处融进天空
+    col = mix(col, skyCol(rd), smoothstep(260.0, 800.0, t));
+  } else {
+    col = skyCol(rd);
+  }
+
+  // 曝光 + 色调映射（ACES 近似）
+  col *= 1.05;
+  col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
+  col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
+  outC = vec4(col, 1.0);
+}`;
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    fail('着色器编译失败', log);
+    throw new Error(log);
+  }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+  const log = gl.getProgramInfoLog(prog);
+  fail('着色器链接失败', log);
+  throw new Error(log);
+}
+gl.useProgram(prog);
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+const U = {};
+for (const n of ['uRes','uSunDir','uZen','uHor','uGlow','uSunCol','uGrd','uCompCol','uCompDir',
+                 'uHaze','uTight','uGstr','uStars','uSunI','uAlb','uRough','uCompSize','uVein',
+                 'uCamPos','uCamFwd','uCamRight','uCamUp','uFov']) {
+  U[n] = gl.getUniformLocation(prog, n);
+}
+
+/* ============================================================
+   相机
+   ============================================================ */
+let yaw = 2.15, pitch = 0.02, fov = 0.82;
+let drag = false, px = 0, py = 0;
+canvas.addEventListener('pointerdown', (e) => { drag = true; px = e.clientX; py = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', () => drag = false);
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  yaw -= (e.clientX - px) * 0.004;
+  pitch = Math.max(-0.35, Math.min(0.85, pitch - (e.clientY - py) * 0.003));
+  px = e.clientX; py = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  fov = Math.max(0.35, Math.min(1.6, fov + e.deltaY * 0.0012));
+}, { passive:false });
+
+/* ============================================================
+   应用参数
+   ============================================================ */
+function apply() {
+  const b = BODIES[cur], p = b[mode];
+  const az = 2.05, el = sunEl * Math.PI / 180;
+  const sd = [Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)];
+
+  gl.uniform3fv(U.uSunDir, sd);
+  gl.uniform3fv(U.uZen, p.zen);
+  gl.uniform3fv(U.uHor, p.hor);
+  gl.uniform3fv(U.uGlow, p.glow);
+  gl.uniform3fv(U.uSunCol, p.sun);
+  gl.uniform3fv(U.uGrd, p.grd);
+  gl.uniform1f(U.uHaze, p.haze);
+  gl.uniform1f(U.uTight, p.tight);
+  gl.uniform1f(U.uGstr, p.gstr);
+  gl.uniform1f(U.uStars, p.stars);
+  gl.uniform1f(U.uSunI, p.sunI);
+  gl.uniform1f(U.uAlb, p.alb);
+  gl.uniform1f(U.uRough, p.rough);
+  gl.uniform1f(U.uVein, cur === 'europa' ? 1 : 0);
+
+  if (p.comp) {
+    const c = p.comp;
+    gl.uniform3fv(U.uCompCol, c.col);
+    gl.uniform3fv(U.uCompDir, [Math.cos(c.az) * Math.cos(c.el), Math.sin(c.el), Math.sin(c.az) * Math.cos(c.el)]);
+    gl.uniform1f(U.uCompSize, c.size);
+  } else {
+    gl.uniform1f(U.uCompSize, 0);
+  }
+
+  const flux = Math.round(1361 / (b.au * b.au));
+  document.getElementById('facts').innerHTML =
+    row('重力', b.g + ' m/s²') +
+    row('日距', b.au + ' AU') +
+    row('太阳辐照', flux + ' W/m²') +
+    row('地表反照率', String(p.alb)) +
+    row('大气', p.haze ? '有' : '真空') +
+    row('日光可见星', p.stars > 0.5 ? '是' : p.stars > 0 ? '弱' : '否') +
+    (p.comp ? row('天上的邻居', p.comp.name) : '');
+
+  const note = document.getElementById('note');
+  note.className = 'note' + (mode === 'drama' ? ' drama' : '');
+  note.textContent = mode === 'drama' ? b.why
+    : '以 NASA 公开观测为起点的参数。切到「戏剧化」看为了游戏改了什么、以及为什么。';
+}
+function row(k, v) { return '<div class="row"><span>' + k + '</span><b>' + v + '</b></div>'; }
+
+/* ============================================================
+   UI
+   ============================================================ */
+const bd = document.getElementById('bodies');
+for (const k of ORDER) {
+  const btn = document.createElement('button');
+  btn.textContent = BODIES[k].name;
+  btn.dataset.k = k;
+  if (k === cur) btn.className = 'on';
+  btn.onclick = () => {
+    cur = k;
+    for (const c of bd.children) c.classList.toggle('on', c.dataset.k === k);
+    apply();
+  };
+  bd.appendChild(btn);
+}
+const mr = document.getElementById('mReal'), md = document.getElementById('mDrama');
+mr.onclick = () => { mode = 'real'; mr.classList.add('on'); md.classList.remove('on'); apply(); };
+md.onclick = () => { mode = 'drama'; md.classList.add('on'); mr.classList.remove('on'); apply(); };
+const sl = document.getElementById('sun'), sv = document.getElementById('sunVal');
+sl.oninput = () => { sunEl = +sl.value; sv.textContent = sunEl + '°'; apply(); };
+
+/* ============================================================
+   主循环
+   ============================================================ */
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 1.75);
+  const w = Math.floor(innerWidth * dpr), h = Math.floor(innerHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w; canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(U.uRes, w, h);
+  }
+}
+addEventListener('resize', resize);
+resize();
+apply();
+
+function frame() {
+  resize();
+  const cp = [0, 2.4, 0];
+  const fwd = [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)];
+  const right = [-Math.sin(yaw), 0, Math.cos(yaw)];
+  const up = [
+    right[1] * fwd[2] - right[2] * fwd[1],
+    right[2] * fwd[0] - right[0] * fwd[2],
+    right[0] * fwd[1] - right[1] * fwd[0]
+  ];
+  gl.uniform3fv(U.uCamPos, cp);
+  gl.uniform3fv(U.uCamFwd, fwd);
+  gl.uniform3fv(U.uCamRight, right);
+  gl.uniform3fv(U.uCamUp, up);
+  gl.uniform1f(U.uFov, fov);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATLAS · 载人运输车</title>
+<style>body{margin:0;background:#dde2e3;color:#24343e;font:14px system-ui}canvas{display:block}header{position:absolute;top:32px;left:40px}h1{font-size:25px;font-weight:500;margin:8px 0}small{letter-spacing:3px}nav{position:absolute;bottom:30px;left:40px;display:flex;gap:8px}button{padding:10px 18px;border:1px solid #9aa8ae;background:#ffffffb0;color:#24343e;cursor:pointer}p{color:#61717b} .flight-touch{display:none}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<header><small>COSMOS / ATLAS</small><h1>载人探测车运输车</h1><p>双座驾驶舱 · 六轮底盘 · MU-7 收纳舱</p></header><nav><button data-view="hero">透视</button><button data-view="top">俯视</button><button data-view="front">正视</button><button data-view="side">侧视</button><button data-view="rear">货舱</button><button id="ramp">打开尾门</button><button id="cargo">装入探测车</button><button id="cutaway">查看内部</button></nav>
+<script type="module">
+import * as THREE from 'three';
+import {Rover} from './rover/载具.js';
+import {create,SPEC} from '../src/artifacts/atlas-carrier/atlas-carrier.js';
+import {carrierMaterials} from '../src/journey/carrier-materials.js';
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdde2e3);
+const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,.1,200);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.append(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x66757b,2.3));const sun=new THREE.DirectionalLight(0xfff9ed,3.2);sun.position.set(-12,24,15);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-15,right:15,top:15,bottom:-15});sun.shadow.normalBias=.035;scene.add(sun);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xcbd3d5,roughness:1}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const grid=new THREE.GridHelper(100,100,0xb4c0c4,0xc2cccf);grid.position.y=.005;scene.add(grid);
+const carrier=create({materials:carrierMaterials()});scene.add(carrier.group);
+const terrain={heightAt:()=>0,normalAt:(x,z,e,out)=>out.set(0,1,0)};
+const rover=new Rover(terrain,scene);rover.placeAt(7,0);rover.panelDeploy=1;
+const brake={throttle:0,steer:0,brake:1,tc:true};
+for(let i=0;i<150;i++)rover.step(1/60,brake,terrain);rover.updateVisuals(0,brake);
+let az=.65,el=.30,radius=24;
+const views={hero:[.65,.30,24],top:[0,Math.PI/2-.001,28],front:[0,.05,24],side:[Math.PI/2,.12,24],rear:[Math.PI+.45,.3,26]};
+function render(){camera.position.set(Math.sin(az)*Math.cos(el)*radius,2.6+Math.sin(el)*radius,Math.cos(az)*Math.cos(el)*radius);camera.lookAt(0,2.6,0);floor.visible=grid.visible=el>=0;renderer.render(scene,camera);}
+for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{[az,el,radius]=views[b.dataset.view];render();};
+let drag=null;renderer.domElement.onpointerdown=e=>{drag=[e.clientX,e.clientY];renderer.domElement.setPointerCapture(e.pointerId);};renderer.domElement.onpointermove=e=>{if(!drag)return;az-=(e.clientX-drag[0])*.008;el=THREE.MathUtils.clamp(el+(e.clientY-drag[1])*.008,-1.5,1.57);drag=[e.clientX,e.clientY];render();};renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>drag=null;renderer.domElement.onwheel=e=>{e.preventDefault();radius=THREE.MathUtils.clamp(radius+e.deltaY*.018,10,48);render();};onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);render();};render();
+let loaded=false,cutaway=false;
+const rampButton=document.querySelector('#ramp'),cargoButton=document.querySelector('#cargo');
+rampButton.onclick=()=>{carrier.setState(carrier.state==='sealed'?'open':'sealed');rampButton.textContent=carrier.state==='sealed'?'打开尾门':'关闭尾门';render();};
+cargoButton.onclick=()=>{loaded=!loaded;carrier.setState('open');rampButton.textContent='关闭尾门';
+ if(loaded){rover.panelDeploy=0;rover.updateVisuals(0,brake);rover.root.position.set(0,1.4+rover.pos.y,-2.4);rover.root.rotation.set(0,0,0);const loadedBox=new THREE.Box3().setFromObject(rover.root);rover.root.position.y+=1.4-loadedBox.min.y;}
+ else{rover.panelDeploy=1;rover.updateVisuals(0,brake);rover.root.position.copy(rover.pos);rover.root.quaternion.copy(rover.quat);}
+ cargoButton.textContent=loaded?'卸下探测车':'装入探测车';[az,el,radius]=views.rear;render();};
+document.querySelector('#cutaway').onclick=()=>{cutaway=!cutaway;carrier.setState(cutaway?'cutaway':'sealed');document.querySelector('#cutaway').textContent=cutaway?'恢复车壳':'查看内部';rampButton.textContent=cutaway?'关闭尾门':'打开尾门';render();};
+window.__CARRIER_PREVIEW={renderer,scene,camera,rover,carrier,SPEC,render};
+</script></html>

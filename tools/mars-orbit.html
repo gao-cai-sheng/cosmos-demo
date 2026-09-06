@@ -1,0 +1,1274 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>COSMOS — 火星在轨视角</title>
+<style>
+  :root{ --ink:#cfe6ee; --dim:#6f8894; --cy:#6fe3f5; --bg:#05060a;
+         --warn:#f5b76f; --bad:#ff5f56; --good:#7ee0a8; --line:rgba(111,227,245,.16); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden;
+             font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  canvas#gl{ position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  canvas#gl:active{ cursor:grabbing; }
+  canvas#ov{ position:fixed; inset:0; width:100%; height:100%; display:block;
+             pointer-events:none; z-index:5; }
+
+  .panel{ position:fixed; top:16px; left:16px; width:268px; z-index:10;
+          background:rgba(6,10,14,.80); border:1px solid var(--line);
+          backdrop-filter:blur(8px); padding:14px; max-height:calc(100vh - 32px); overflow:auto; }
+  .panel h1{ margin:0 0 2px; font-size:13px; letter-spacing:.16em; color:var(--cy); font-weight:600; }
+  .panel .sub{ color:var(--dim); font-size:10px; letter-spacing:.1em; margin-bottom:12px; }
+  .lab{ color:var(--dim); font-size:10px; letter-spacing:.14em; margin:13px 0 5px; }
+  .lab b{ float:right; color:var(--cy); font-weight:500; }
+  input[type=range]{ width:100%; accent-color:var(--cy); }
+  .seg{ display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  button{ font:inherit; font-size:10px; letter-spacing:.1em; padding:6px 4px; cursor:pointer;
+          background:rgba(255,255,255,.04); color:var(--ink); border:1px solid var(--line); transition:.12s; }
+  button:hover{ background:rgba(111,227,245,.10); }
+  button.on{ background:var(--cy); color:#05060a; border-color:var(--cy); }
+  .jump{ display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
+  .jump button{ font-size:9.5px; padding:4px 6px; }
+
+  .tele{ position:fixed; top:16px; right:16px; width:232px; z-index:10;
+         background:rgba(6,10,14,.80); border:1px solid var(--line);
+         backdrop-filter:blur(8px); padding:12px 14px; }
+  .row{ display:flex; justify-content:space-between; gap:8px; padding:2.5px 0; }
+  .row span{ color:var(--dim); } .row b{ font-weight:500; }
+  .hdr{ color:var(--cy); font-size:10px; letter-spacing:.14em; margin:10px 0 4px;
+        border-top:1px solid var(--line); padding-top:8px; }
+  .hdr:first-child{ border-top:0; margin-top:0; padding-top:0; }
+
+  .hint{ position:fixed; bottom:14px; left:16px; color:var(--dim); font-size:10px; z-index:10; }
+  #fade{ position:fixed; inset:0; z-index:40; background:#05060a; pointer-events:none;
+         opacity:0; transition:opacity .55s ease; }
+  #fade.on{ opacity:1; }
+  #busy{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+         background:#05060a; color:var(--cy); letter-spacing:.22em; font-size:12px; }
+  #err{ position:fixed; right:16px; bottom:16px; max-width:520px; z-index:99; background:#2a0d0d;
+        border:1px solid #ff5f56; color:#ffd9d6; padding:12px 14px; font-size:11px;
+        line-height:1.6; white-space:pre-wrap; display:none; }
+  #err b{ color:#ff5f56; display:block; margin-bottom:6px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ov"></canvas>
+
+<div class="panel">
+  <h1>火星在轨视角</h1>
+  <div class="sub">MU-7 CASSIOPEIA · MOLA 实测地形</div>
+
+  <div class="lab">高度 <b id="altLab">—</b></div>
+  <input type="range" id="alt" min="0" max="1000" step="1" value="919" />
+
+  <div class="lab">视角俯仰 <b id="pitLab">—</b></div>
+  <input type="range" id="pit" min="0" max="112" step="1" value="5" />
+
+  <div class="lab">航向 <b id="hdgLab">—</b></div>
+  <input type="range" id="hdg" min="0" max="359" step="1" value="90" />
+
+  <div class="lab">地形夸张 <b id="exgLab">—</b></div>
+  <input type="range" id="exg" min="1" max="30" step="0.5" value="9" />
+
+  <div class="lab">太阳</div>
+  <div class="seg">
+    <button id="sFix" class="on">固定</button>
+    <button id="sFol">跟随</button>
+  </div>
+
+  <div class="lab" id="sunRow">日下点经度 <b id="sunLab">—</b></div>
+  <input type="range" id="sun" min="0" max="359" step="1" value="132" />
+
+  <div class="lab">太阳高度角 <b id="elvLab">—</b></div>
+  <input type="range" id="elv" min="-12" max="80" step="1" value="12" />
+  <div class="seg" style="margin-top:5px">
+    <button id="sWest" class="on">夕照 · 光在西</button>
+    <button id="sEast">晨照 · 光在东</button>
+  </div>
+
+  <div class="lab">日下点纬度 · 季节 <b id="decLab">—</b></div>
+  <input type="range" id="dec" min="-25" max="25" step="0.5" value="15" />
+
+  <div class="lab">地表细节 <b id="detLab">—</b></div>
+  <input type="range" id="det" min="0" max="0.4" step="0.01" value="0.17" />
+
+  <div class="lab">视图 · 前两个是成品，后三个是验收视图</div>
+  <div class="seg">
+    <button id="cReal" class="on">真实色</button>
+    <button id="cTopo">测高色</button>
+  </div>
+  <div class="jump">
+    <button id="cNorm">法线</button>
+    <button id="cAlb">无光照</button>
+    <button id="cClay">纯白无贴图</button>
+  </div>
+
+  <div class="lab">地名标注</div>
+  <div class="seg">
+    <button id="nOn" class="on">显示</button>
+    <button id="nOff">隐藏</button>
+  </div>
+  <div class="seg" style="margin-top:5px">
+    <button id="nSite" class="on">着陆点</button>
+    <button id="nDense">全部地名</button>
+  </div>
+
+  <div class="lab">自动飞行</div>
+  <div class="seg">
+    <button id="flyOn" class="on">前进</button>
+    <button id="flyOff">悬停</button>
+  </div>
+
+  <div class="lab">黄道面 · 火星黄赤交角 25.2°</div>
+  <div class="seg">
+    <button id="eclOn" class="on">显示</button>
+    <button id="eclOff">隐藏</button>
+  </div>
+
+  <div class="lab">飞往</div>
+  <div class="jump" id="jump"></div>
+
+  <div class="lab">落地 <b id="landLab">—</b></div>
+  <div class="col" style="display:grid;gap:4px">
+    <button id="landBtn" style="width:100%">在当前星下点降落 ↓</button>
+  </div>
+</div>
+
+<div class="tele">
+  <div class="hdr">飞行状态</div>
+  <div id="navRows"></div>
+  <div class="hdr">星下点</div>
+  <div id="subRows"></div>
+  <div class="hdr">数据源</div>
+  <div class="row"><span>高程</span><b>MOLA MEGDR</b></div>
+  <div class="row"><span>分辨率</span><b>4 px/度 · 14.8 km</b></div>
+  <div class="row"><span>基准半径</span><b>3396.2 km</b></div>
+</div>
+
+<div class="hint">拖动 = 改变位置 · 滚轮 = 高度 · 前进 = 公转 + 火星自转（60×）</div>
+<div id="fade"></div>
+<div id="busy">正在载入 MOLA 高程…</div>
+<div id="err"></div>
+
+<script src="../data/mola_4ppd.js"></script>
+<script type="module">
+import { getJourney, startJourney, updateJourney, isJourneyMode, sceneURL, DEFAULT_SITE, getSettings } from '../src/journey/state.js';
+import { PLACES } from '../src/journey/landmarks.js';
+import { mountJourneyUI } from '../src/journey/ui.js';
+const JOURNEY = isJourneyMode();
+const ORBIT_QS = new URLSearchParams(location.search);
+const FLIGHT_ORBIT = ORBIT_QS.get('flight') === '1';
+const ORBIT_GAME = JOURNEY || FLIGHT_ORBIT;
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let orbitUI = null;
+let qualityLimit = getSettings().quality === 'low' ? 1 : 1.6;
+if (JOURNEY && !getJourney()) startJourney();
+/* ============================================================
+   COSMOS 火星在轨视角
+   零依赖 WebGL2。
+
+   和之前的火星球不同：这里是对一个被真实高程抬起来的球面做
+   光线步进，所以地平线剪影、地形自阴影、晨昏线全是真的 ——
+   奥林帕斯山在星球边缘鼓出来那一下，是参数化模型给不了的。
+   ============================================================ */
+const errBox = document.getElementById('err');
+function fail(t,d){ errBox.style.display='block'; errBox.innerHTML='<b>'+t+'</b>'+(d||'');
+  document.getElementById('busy').style.display='none'; }
+addEventListener('error', e => fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')));
+
+if (typeof window.MOLA === 'undefined')
+  { fail('缺少 MOLA 数据', '需要 ../data/mola_4ppd.js'); throw new Error('no data'); }
+
+const RM = 3396.2, D2R = Math.PI/180;
+const TW = MOLA.w, TH = MOLA.h;
+
+/* ============================================================
+   着色器
+   ============================================================ */
+const VS = `#version 300 es
+void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+             gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+
+const FS = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+out vec4 outC;
+
+uniform vec2 uRes;
+uniform sampler2D uH;          // RG8：原始 16 位大端高程（米）
+uniform vec3 uCam;             // 相机位置（行星半径归一化为 1）
+uniform mat3 uBasis;           // 视线基：右 / 上 / 前
+uniform vec3 uSun;             // 太阳方向（行星空间）
+uniform float uExag;           // 地形夸张
+uniform float uFov;
+uniform int  uColor;           // 0 真实色  1 测高色
+uniform float uRmin, uRmax;    // 地形半径包络
+uniform float uDetail;         // 细节层幅度（km），只作用于法线与颜色
+
+const float RM = 3396.2;
+
+/* ---- 取高程（km），双线性 ---- */
+float texelH(ivec2 p){
+  p.x = int(mod(float(p.x), 1440.0));
+  p.y = clamp(p.y, 0, 719);
+  vec2 rg = texelFetch(uH, p, 0).rg * 255.0;
+  float v = rg.r*256.0 + rg.g;
+  if(v > 32767.0) v -= 65536.0;        // 有符号
+  return v * 0.001;                     // 米 → km
+}
+float heightUV(vec2 uv){
+  vec2 t = vec2(uv.x*1440.0, uv.y*720.0) - 0.5;
+  vec2 i = floor(t), f = fract(t);
+  /* 这里试过 f = f*f*(3.0-2.0*f)（平滑插值）。它确实消掉了双线性的菱形折痕，
+     但代价更糟：smoothstep 在每个格边导数归零，于是每个 14.8 km 单元变成一小块
+     平台，整座山成了梯田 —— 掠射光下每级台阶还各投一道小影子，坡面上打出
+     一排等距黑条。那排黑条我一度当成阴影自交在查，其实是它。
+     纯双线性的折痕虽然也在，但不会造出「平台 + 台阶影」这种成结构的错误。
+     真正该补细节的是下面的 fineN，不是插值。 */
+  ivec2 b = ivec2(i);
+  float h00 = texelH(b), h10 = texelH(b+ivec2(1,0));
+  float h01 = texelH(b+ivec2(0,1)), h11 = texelH(b+ivec2(1,1));
+  return mix(mix(h00,h10,f.x), mix(h01,h11,f.x), f.y);
+}
+vec2 dirToUV(vec3 d){
+  float lat = degrees(asin(clamp(d.y,-1.0,1.0)));
+  float lon = degrees(atan(d.z, d.x));
+  return vec2(mod(lon,360.0)/360.0, (90.0-lat)/180.0);
+}
+float heightDir(vec3 d){ return heightUV(dirToUV(d)); }
+
+/* ============================================================
+   程序化细节
+   MOLA 4 ppd 一个像素 14.8 km。真实数据管宏观，这一层管公里级以下，
+   两者频段不重叠，所以补细节不会污染实测地貌。
+
+   >>> GLSL 必须先定义后使用：这几个函数一定要留在 terrR 之前。 <<<
+   （上次把噪声放到 hash21 旁边，也就是 terrR 之后，直接编译失败。）
+   ============================================================ */
+float hash31(vec3 p){
+  p = fract(p*0.1031 + vec3(0.11,0.17,0.13));
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x+p.y)*p.z);
+}
+float vnoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  f = f*f*(3.0-2.0*f);
+  float a = mix(mix(hash31(i),               hash31(i+vec3(1,0,0)), f.x),
+                mix(hash31(i+vec3(0,1,0)),   hash31(i+vec3(1,1,0)), f.x), f.y);
+  float b = mix(mix(hash31(i+vec3(0,0,1)),   hash31(i+vec3(1,0,1)), f.x),
+                mix(hash31(i+vec3(0,1,1)),   hash31(i+vec3(1,1,1)), f.x), f.y);
+  return mix(a,b,f.z)*2.0 - 1.0;
+}
+
+/* 细节层：3 个倍频，特征尺寸 R/f = 3.3 / 1.6 / 0.8 km，返回单位幅度。
+
+   三条边界都是撞出来的：
+
+   1)「只在命中之后算」。第一版把噪声放进了 terrR，于是光线步进的每一步
+      都要多算 16 次哈希 —— 260 步 ×290 万像素，浏览器直接卡到脚本注入超时。
+      这和「光线步进里每加一个构件、所有像素每一步都要多算一次」是同一个
+      结构性限制，不是调参能救的。现在它只改法线和颜色、不进几何，
+      每像素只跑 5 次（本体 + 四个有限差分），代价可以忽略。
+
+   2)「频率全部低于数据的 14.8 km」。第一版还有 82 km 和 40 km 两档，
+      那是在真实 MOLA 已经管着的频段上再叠一层假的 —— 会和实测地貌打架。
+      procedural-planets 的说法是：材质专属的细节只留给亚网格尺度。
+      所以宏观一律听数据的，14.8 km 以下才归程序噪声。
+
+   3) 每一档各按自己的奈奎斯特淡出，不是三档共用一个开关。
+      特征尺寸分别是 R/f = 3.3 / 1.6 / 0.8 km。共用一个开关时，
+      330 km 高度上一个像素覆盖 0.68 km —— 0.8 km 那一档只剩 1.2 个像素，
+      整片地表变成砂纸。现在每档在自己的特征降到约 2 像素时开始淡出，
+      于是近地能看到全部三档，在轨只剩最粗的那档，两头都干净。 */
+float fineN(vec3 d, float pxKm){
+  return vnoise(d*1041.0)*0.53*(1.0 - smoothstep(1.10, 3.30, pxKm))
+       + vnoise(d*2113.0)*0.30*(1.0 - smoothstep(0.55, 1.60, pxKm))
+       + vnoise(d*4231.0)*0.17*(1.0 - smoothstep(0.27, 0.80, pxKm));
+}
+
+/* 某方向上的地形半径（归一化）—— 纯实测，不掺噪声 */
+float terrR(vec3 d){ return 1.0 + heightDir(d)/RM*uExag; }
+
+/* 与半径 r 的球求交，返回近远两个 t（无交返回 x>y） */
+vec2 hitSphere(vec3 ro, vec3 rd, float r){
+  float b = dot(ro, rd), c = dot(ro,ro) - r*r;
+  float disc = b*b - c;
+  if(disc < 0.0) return vec2(1.0, -1.0);
+  float s = sqrt(disc);
+  return vec2(-b-s, -b+s);
+}
+
+/* ---- 配色 ---- */
+vec3 topoCol(float h){
+  if(h < -5.0)      return mix(vec3(.16,.08,.27), vec3(.12,.24,.51), (h+8.5)/3.5);
+  else if(h < -2.5) return mix(vec3(.12,.24,.51), vec3(.12,.47,.59), (h+5.0)/2.5);
+  else if(h <  0.0) return mix(vec3(.12,.47,.59), vec3(.16,.59,.43), (h+2.5)/2.5);
+  else if(h <  1.5) return mix(vec3(.16,.59,.43), vec3(.59,.65,.29), h/1.5);
+  else if(h <  4.0) return mix(vec3(.59,.65,.29), vec3(.78,.59,.24), (h-1.5)/2.5);
+  else if(h <  8.0) return mix(vec3(.78,.59,.24), vec3(.80,.39,.22), (h-4.0)/4.0);
+  else if(h < 13.0) return mix(vec3(.80,.39,.22), vec3(.75,.27,.24), (h-8.0)/5.0);
+  else if(h < 18.0) return mix(vec3(.75,.27,.24), vec3(.84,.59,.59), (h-13.0)/5.0);
+  return mix(vec3(.84,.59,.59), vec3(.96,.94,.94), clamp((h-18.0)/4.0,0.0,1.0));
+}
+vec3 realCol(float h, vec3 d, float slope, float micro){
+  /* 火星地表：铁锈红为底，高地更亮偏黄（老而多尘），低地更暗偏灰，
+     陡坡露出深色基岩 */
+  vec3 lowl = vec3(0.42, 0.26, 0.19);
+  vec3 high = vec3(0.66, 0.44, 0.28);
+  vec3 c = mix(lowl, high, clamp((h + 5.0)/12.0, 0.0, 1.0));
+  c = mix(c, vec3(0.30,0.20,0.16), clamp(slope*2.4, 0.0, 0.62));   // 陡坡露岩
+  /* 极冠 */
+  float lat = degrees(asin(clamp(d.y,-1.0,1.0)));
+  float pol = smoothstep(72.0, 82.0, abs(lat));
+  c = mix(c, vec3(0.88,0.88,0.92), pol*0.85);
+  /* 细碎斑驳：接的是细节场本身，不是另一套独立的哈希。
+     颜色与法线同源，这样近距离时明暗和起伏才对得上 ——
+     以前那个 hash21(uv*2600) 与地形毫无关系，且远处必然闪烁。 */
+  c *= 1.0 + 0.17*micro;
+  return c;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy*2.0 - uRes)/uRes.y;
+  vec3 rd = normalize(uBasis * vec3(uv*uFov, 1.0));
+  vec3 ro = uCam;
+
+  /* 星空 */
+  vec3 sky;
+  {
+    vec3 g = floor(rd*180.0);
+    float r = fract(sin(dot(g, vec3(127.1,311.7,74.7)))*43758.5453);
+    float s = 0.0;
+    if(r > 0.9958){
+      vec3 c = (g+0.5)/180.0;
+      s = pow(max(0.0, 1.0 - length(normalize(c)-rd)*540.0), 2.0)*(0.3+fract(r*91.7)*0.7);
+    }
+    sky = vec3(s);
+  }
+
+  /* 与地形包络球求交 */
+  vec2 hOut = hitSphere(ro, rd, uRmax);
+  if(hOut.x > hOut.y){ outC = vec4(sky,1.0); return; }
+
+  float t  = max(hOut.x, 0.0);
+  float te = hOut.y;
+  /* 若射线会穿到内包络球以内，就在那之前停 */
+  vec2 hIn = hitSphere(ro, rd, uRmin);
+  if(hIn.x <= hIn.y && hIn.x > 0.0) te = min(te, hIn.x);
+
+  bool hit = false;
+  float dPrev = 0.0, tPrev = t;
+  const int N = 260;
+  for(int i=0;i<N;i++){
+    vec3 p = ro + rd*t;
+    float r = length(p);
+    float d = r - terrR(normalize(p));
+    if(d < 0.0){ hit = true; break; }
+    dPrev = d; tPrev = t;
+    /* 步长：离地越远走越快，掠射时收紧。
+       d 是「竖直距离」不是真正的欧氏距离场，所以要打个保守系数。 */
+    t += max(d*0.62, (te-hOut.x)*0.0035);
+    if(t > te) break;
+  }
+
+  if(!hit){ outC = vec4(sky,1.0); return; }
+
+  /* 二分细化交点 */
+  float a = tPrev, b = t;
+  for(int i=0;i<12;i++){
+    float m = (a+b)*0.5;
+    vec3 p = ro + rd*m;
+    if(length(p) - terrR(normalize(p)) < 0.0) b = m; else a = m;
+  }
+  /* 取 a —— 最后一个仍在地表「之外」的点。
+     原来取的是 b，也就是把交点定在地表以内，肉眼完全看不出来；
+     可后面的阴影射线就是从地下出发的，掠射光一开，缓坡上立刻打出
+     一片硬边纯黑麻点。太阳当顶时 sh 几乎不参与成像，所以一直没露头。 */
+  t = a;
+
+  vec3 P = ro + rd*t;
+  vec3 N0 = normalize(P);
+
+  /* ---- 按像素足迹过滤细节 ----
+     第一版照抄了 procedural-planets 的高度阈值（near = R*0.022 = 75 km、
+     mid = R*0.11 = 374 km），结果 330 km 的默认视角上细节几乎全没了 ——
+     等于白补。原因是那套阈值是给「相机高度」用的，我却拿去比「到片元的距离」，
+     朝地平线看一眼就是 1500 km。
+
+     正确的判据是像素足迹：细节该不该出现，取决于它在屏幕上还剩几个像素，
+     而不是飞得多高。最细的一档波长 2.6 km，所以一个像素覆盖 0.9 km 时开始淡出、
+     3 km 时淡尽 —— 正好卡在奈奎斯特上，既不会糊也不会闪。
+     规矩没变：近处的细节可以消失，宏观剪影不可以，所以淡出的只有这一层。
+     具体每档淡到什么程度，交给 fineN 自己按各自的奈奎斯特决定。 */
+  float dKm  = t*RM;
+  float pxKm = dKm * uFov * 2.0 / uRes.y;      // 每像素对应的地面公里数
+  float aFine = uDetail;
+
+  float micro = (aFine > 0.0) ? fineN(N0, pxKm) : 0.0;
+  float hKm = heightDir(N0) + aFine*micro;
+
+  /* ---- 局部东 / 北 ----
+     曾经写的是 T = normalize(cross(vec3(0,1,0), N0))、B = cross(N0, T)。
+     代进去算一次就知道：那个 T 其实是「西」×cosφ，那个 B 是「南」。
+     于是 N0 - T*gx - B*gy 等价于 N0 + 东*gx + 北*gy —— 法线在两个方向上
+     全反了，山头是暗的、坑底是亮的。
+     太阳当顶时 ndl≈1，扰动量被整个淹没，所以一直没被发现；
+     一把太阳压到掠射，它立刻就是画面上最刺眼的错误。 */
+  vec3 east  = normalize(vec3(-N0.z, 0.0, N0.x));   // ∝ dN0/dλ
+  vec3 north = cross(east, N0);                      // 验算过：= dN0/dφ
+
+  /* 宏观坡度：来自 MOLA 实测 */
+  float e = 0.16;                                   // 度
+  vec2 ll = vec2(degrees(asin(clamp(N0.y,-1.0,1.0))), degrees(atan(N0.z,N0.x)));
+  float clat = max(0.08, cos(radians(ll.x)));
+  float hE = heightUV(vec2(mod(ll.y+e,360.0)/360.0, (90.0-ll.x)/180.0));
+  float hW = heightUV(vec2(mod(ll.y-e+360.0,360.0)/360.0, (90.0-ll.x)/180.0));
+  float hN = heightUV(vec2(mod(ll.y,360.0)/360.0, (90.0-min(89.9,ll.x+e))/180.0));
+  float hS = heightUV(vec2(mod(ll.y,360.0)/360.0, (90.0-max(-89.9,ll.x-e))/180.0));
+  float dxKm = e*(3.14159265/180.0)*RM*clat, dyKm = e*(3.14159265/180.0)*RM;
+  float gx = (hE-hW)/(2.0*dxKm), gy = (hN-hS)/(2.0*dyKm);
+
+  /* 宏观法线：只用实测数据，和 terrR 描述的是同一个高度函数。
+     阴影步进必须用它来判方向 —— 用掺了细节的 Nn 去判，会出现
+     「法线说朝着太阳、几何说背着太阳」的自相矛盾，正是黑条纹的一半成因。 */
+  vec3 Nm = normalize(N0 - east*gx*uExag - north*gy*uExag);
+
+  /* 细节层坡度：切平面上有限差分，一个像素只走这四次。
+     颜色的斑驳（micro）与这里的法线扰动同源，所以近距离看明暗和起伏是对得上的。 */
+  float dgx = 0.0, dgy = 0.0;
+  if(aFine > 0.0){
+    /* 差分步长跟着像素足迹走，而不是写死 1.19 km。
+       写死的话，近地时它比最细那档的特征还粗，法线会把细节抹平；
+       远处又比像素细，等于在采样噪声。这一步本质上就是手写的 dFdx。 */
+    float sKm = max(0.35, pxKm);
+    float s = sKm/RM;
+    vec3 dE = normalize(N0 + east*s),  dW = normalize(N0 - east*s);
+    vec3 dN = normalize(N0 + north*s), dS = normalize(N0 - north*s);
+    dgx = aFine*(fineN(dE,pxKm) - fineN(dW,pxKm))/(2.0*sKm);
+    dgy = aFine*(fineN(dN,pxKm) - fineN(dS,pxKm))/(2.0*sKm);
+  }
+
+  /* 细节层用 √uExag 而不是 uExag。
+     ×9 原样加到细节上，0.17 km 幅度配 3.3 km 特征就成了 25° 的微坡 ——
+     12° 掠射光下一半微面直接进阴影，整片地表变成高对比砂纸。
+     宏观夸张是为了让山看得出是山，不是为了让沙砾也长大九倍；
+     细节层的职责只是打散 14.8 km 的格子，不该抢戏。 */
+  float dEx = sqrt(uExag);
+  vec3 Nn = normalize(N0 - east*(gx*uExag + dgx*dEx) - north*(gy*uExag + dgy*dEx));
+  float slope = length(vec2(gx + dgx, gy + dgy));
+
+  /* 地形自阴影：朝太阳走一段。
+     改成软阴影 —— 记录整条路径上「离地距离 / 已走距离」的最小比值。
+     掠射光下这一步收益极大：硬边阴影会把地形切成剪纸。 */
+  float sh = 1.0;
+  {
+    if(dot(Nm, uSun) > 0.0){
+      /* 起点直接按半径归位到地表再抬 0.1 km。
+         地形本来就是径向高度场，这比沿法线偏移准，也不依赖 exag。
+         之前是「从命中点沿太阳方向直接走 2 km」：太阳压到 12° 时，
+         这 2 km 里水平走了 1.96 km、垂直只爬了 0.42 km —— 任何超过 12°
+         的坡都会把射线自己埋进去。 */
+      vec3 SP = N0 * (terrR(N0) + 0.00003);
+
+      /* 步长：先等距密采、再逐渐拉开。
+         纯几何级增长（st *= 1.22）在近场太稀，采样壳与地形起伏拍频，
+         会在坡面上打出一排等距平行黑条 —— 那不是影子，是欠采样的摩尔纹。
+         接触阴影全靠近场，所以近场必须均匀。 */
+      float st = 0.0, inc = 0.00018, k = 1.0;       // 起步 0.61 km
+      for(int i=0;i<40;i++){
+        st += inc; inc *= 1.15;
+        if(st > 0.22) break;                        // ≈750 km，够长影子了
+        vec3 q = SP + uSun*st;
+        float dq = length(q) - terrR(normalize(q));
+        if(dq < 0.0){ k = 0.0; break; }
+        k = min(k, 11.0*dq/st);
+      }
+      sh = clamp(k, 0.0, 1.0);
+    }
+  }
+
+  /* 诊断视图：无光照反照率 / 纯法线 / 纯白无贴图。
+     这三个是 procedural-planets 完成测试里点名要的 —— 一个星球必须在
+     「不打光的剪影」「平反照率无大气」「只看法线」下都还是有意图的。 */
+  vec3 base = (uColor == 1) ? topoCol(hKm)
+            : (uColor  > 1) ? vec3(0.62)
+            : realCol(hKm, N0, slope, micro);
+  if(uColor == 2){ outC = vec4(Nn*0.5+0.5, 1.0); return; }
+  if(uColor == 3){ outC = vec4(pow(realCol(hKm,N0,slope,micro), vec3(1.0/2.15)), 1.0); return; }
+  float ndl = max(dot(Nn, uSun), 0.0);
+  /* 大气散射带来的一点点补光，以及夜面的极暗底噪 */
+  float amb = 0.055;
+  vec3 col = base*(amb + ndl*sh*1.15);
+
+  /* 晨昏线附近的暖色 */
+  float term = smoothstep(0.0, 0.35, dot(N0, uSun));
+  col *= mix(vec3(1.15,0.78,0.55), vec3(1.0), term);
+
+  /* 薄大气：贴近边缘时叠一层锈色雾 */
+  float rim = pow(1.0 - max(0.0, dot(-rd, N0)), 2.6);
+  col = mix(col, vec3(0.55,0.32,0.20), rim*0.20*max(0.15, dot(N0,uSun)+0.4));
+
+  col = pow(clamp(col,0.0,1.0), vec3(1.0/2.15));
+  outC = vec4(col, 1.0);
+}`;
+
+/* ============================================================
+   初始化
+   ============================================================ */
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias:false, powerPreference:'high-performance' });
+if(!gl){ fail('WebGL2 不可用','换 Chrome / Edge，或打开硬件加速。'); throw new Error('no webgl2'); }
+
+function sh(ty, src){
+  const s = gl.createShader(ty); gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ const l=gl.getShaderInfoLog(s); fail('着色器编译失败', l); throw new Error(l); }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){ const l=gl.getProgramInfoLog(prog); fail('着色器链接失败', l); throw new Error(l); }
+gl.useProgram(prog);
+gl.bindVertexArray(gl.createVertexArray());
+
+const U = {};
+for(const n of ['uRes','uH','uCam','uBasis','uSun','uExag','uFov','uColor','uRmin','uRmax','uDetail'])
+  U[n] = gl.getUniformLocation(prog, n);
+
+/* ---- 高程贴图：原始 16 位大端字节直接进 RG 通道 ---- */
+let HMIN = 0, HMAX = 0;
+{
+  const bin = atob(MOLA.b64);
+  const n = TW*TH;
+  const rg = new Uint8Array(n*2);
+  let mn = 1e9, mx = -1e9;
+  for(let i=0;i<n;i++){
+    const hi = bin.charCodeAt(i*2), lo = bin.charCodeAt(i*2+1);
+    rg[i*2] = hi; rg[i*2+1] = lo;
+    let v = (hi<<8)|lo; if(v & 0x8000) v -= 0x10000;
+    const km = v/1000;
+    if(km<mn) mn=km; if(km>mx) mx=km;
+  }
+  HMIN = mn; HMAX = mx;
+
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, TW, TH, 0, gl.RG, gl.UNSIGNED_BYTE, rg);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(U.uH, 0);
+}
+
+/* ============================================================
+   飞行状态
+   ============================================================ */
+// 默认从真正的在轨航天器高度开始看：6500 km 高度、5°前下方视角。
+// 高度滑块是对数刻度，对应值约为 919。
+const MOTION = {
+  // 让轨道运动和自转在一次观察中可见；遥测会明确标出这是加速后的模拟时间。
+  timeScale: 60,
+  marsDay: 88775.244,                    // 火星恒星日，秒
+  elapsed: 0,
+  marsSpin: 0,
+  sunAz0: 0,
+};
+const MARS_OBLIQUITY = 25.19 * D2R;
+
+const S = { lat:18.0, lon:214.0, alt:6500, pitch:5, hdg:90, exag:9,
+            sunAz:132, sunDec:15, sunElev:12, sunFollow:false, sunSide:-1,
+            ecliptic:true, detail:0.17, color:0, fly:true,
+            names:true, sites:true, dense:false };
+if (JOURNEY) {
+  Object.assign(S, { ...getJourney().site, alt:3600, exag:3, sunFollow:true,
+    sunElev:28, sunDec:0, fly:false, ecliptic:false, names:true });
+}
+if (!JOURNEY || FLIGHT_ORBIT) {
+  const lat = Number.parseFloat(ORBIT_QS.get('lat')), lon = Number.parseFloat(ORBIT_QS.get('lon'));
+  if (Number.isFinite(lat)) S.lat = Math.max(-88, Math.min(88, lat));
+  if (Number.isFinite(lon)) S.lon = ((lon % 360) + 360) % 360;
+  if (FLIGHT_ORBIT) {
+    Object.assign(S,{alt:160,pitch:70,fly:ORBIT_QS.get('target')!=='1',sunFollow:true,sunElev:28,exag:1,ecliptic:false});
+    MOTION.timeScale=1;
+  }
+}
+
+/* ------------------------------------------------------------
+   太阳几何
+   之前的写法是 sun = [cos(az), 0.28, sin(az)]，az 默认 215°。
+   在默认星下点（18°N / 214°E）上 dot(up, sun) ≈ 0.999 —— 太阳几乎正当顶，
+   于是没有影子、没有明暗交界，地形看着像一块塑料。
+
+   现在按球面几何来：sunDec 是日下点纬度（季节，火星轴倾角 25.2°），
+   sunAz 是日下点经度。局部太阳高度角 elev 满足
+       sin(elev) = cosφ·cosδ·cos(λ−λs) + sinφ·sinδ
+   反解出 λs，就能把太阳精确摆到想要的高度角上。
+   ------------------------------------------------------------ */
+function sunVec(){
+  const sd = S.sunDec*D2R, sa = S.sunAz*D2R;
+  return [Math.cos(sd)*Math.cos(sa), Math.sin(sd), Math.cos(sd)*Math.sin(sa)];
+}
+function sunElevAt(lat, lon){
+  const s = sunVec(), la = lat*D2R, lo = lon*D2R;
+  const up = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
+  return Math.asin(Math.max(-1, Math.min(1, up[0]*s[0]+up[1]*s[1]+up[2]*s[2])))/D2R;
+}
+/* 解出让当前星下点太阳高度角等于 elevDeg 的日下点经度。
+   sunSide = −1 太阳在西（夕照）， +1 在东（晨照）。
+   高纬度配上不利的季节时，要求的高度角可能根本达不到 —— 这时钳到当天的
+   极值，不要静默地给个错的角度。 */
+function sunLonFor(elevDeg){
+  const e = elevDeg*D2R, phi = S.lat*D2R, dec = S.sunDec*D2R;
+  const denom = Math.cos(phi)*Math.cos(dec);
+  if(Math.abs(denom) < 1e-6) return S.sunAz;
+  const c = (Math.sin(e) - Math.sin(phi)*Math.sin(dec)) / denom;
+  const d = Math.acos(Math.max(-1, Math.min(1, c)))/D2R;
+  return ((S.lon + S.sunSide*d) % 360 + 360) % 360;
+}
+
+const JUMPS = [
+  ['奥林帕斯山', 18.6, 214.0,  90, 260],
+  ['水手谷',     -12.0, 278.0, 90, 200],
+  ['希腊平原',   -40.0,  52.0, 90, 420],
+  ['塔尔西斯',    -2.0, 228.0, 90, 520],
+  ['北极冠',      78.0, 200.0, 90, 460],
+  ['高轨',        10.0, 250.0, 90, 3200]
+];
+
+function heightAtJS(lat, lon){
+  // 只用于遥测读数，最近邻足够
+  const bin = HB;
+  const x = ((Math.floor(((lon%360)+360)%360/0.25))%TW+TW)%TW;
+  const y = Math.max(0, Math.min(TH-1, Math.floor((90-lat)/0.25)));
+  const i = y*TW+x;
+  let v = (bin.charCodeAt(i*2)<<8) | bin.charCodeAt(i*2+1);
+  if(v & 0x8000) v -= 0x10000;
+  return v/1000;
+}
+const HB = atob(MOLA.b64);
+
+/* ---- 相机 ---- */
+/* 离地高度 —— 注意不等于「高度」。
+   高度滑块量的是相对基准球面（3396.2 km）的高度，但地形夸张会把地表
+   整个抬高 N 倍。奥林帕斯山顶 20.24 km，×3 之后是 60.7 km，
+   于是「高度 26 km」的相机其实埋在山里，整屏一片均匀棕色、毫无提示。
+   我自己就这么撞了一次，还先怀疑是细节层没生效。 */
+function groundClearance(){ return S.alt - heightAtJS(S.lat, S.lon)*S.exag; }
+
+function buildCamera(){
+  const la = S.lat*D2R, lo = S.lon*D2R;
+  const up = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
+  /* 至少留 2 km 离地，宁可偏离滑块也不要把镜头埋进地里 */
+  const rN = 1 + Math.max(S.alt, heightAtJS(S.lat, S.lon)*S.exag + 2)/RM;
+  const cam = [up[0]*rN, up[1]*rN, up[2]*rN];
+
+  // 局部东 / 北
+  let east = [-Math.sin(lo), 0, Math.cos(lo)];
+  const north = [
+    up[1]*east[2]-up[2]*east[1],
+    up[2]*east[0]-up[0]*east[2],
+    up[0]*east[1]-up[1]*east[0]
+  ];
+  const h = S.hdg*D2R;
+  const fwd = [
+    north[0]*Math.cos(h)+east[0]*Math.sin(h),
+    north[1]*Math.cos(h)+east[1]*Math.sin(h),
+    north[2]*Math.cos(h)+east[2]*Math.sin(h)
+  ];
+  // 俯仰：0 = 垂直向下，90 = 正对地平线
+  const p = S.pitch*D2R;
+  const dir = [
+    -up[0]*Math.cos(p)+fwd[0]*Math.sin(p),
+    -up[1]*Math.cos(p)+fwd[1]*Math.sin(p),
+    -up[2]*Math.cos(p)+fwd[2]*Math.sin(p)
+  ];
+  const dl = Math.hypot(...dir); const F = dir.map(v=>v/dl);
+  /* 相机基必须满足 右 × 上 = 前（右手系）。
+       右 = 上 × 前
+       上 = 前 × 右
+     曾经写成 右 = 前 × 上（差一个负号），上向量看着是对的，
+     但整幅画面左右镜像 —— 地貌会出现在错误的一侧，很难用肉眼发现。 */
+  let R = [up[1]*F[2]-up[2]*F[1], up[2]*F[0]-up[0]*F[2], up[0]*F[1]-up[1]*F[0]];
+  const rl = Math.hypot(...R); R = R.map(v=>v/rl);
+  const Uv = [F[1]*R[2]-F[2]*R[1], F[2]*R[0]-F[0]*R[2], F[0]*R[1]-F[1]*R[0]];
+  return { cam, basis:[R[0],R[1],R[2], Uv[0],Uv[1],Uv[2], F[0],F[1],F[2]] };
+}
+
+/* 自适应渲染倍率。
+   这一版为了补细节，我先把噪声塞进了光线步进，结果整个标签页卡死到
+   连脚本注入都超时 —— 光线步进的每一步成本会被所有像素放大，是结构性的。
+   噪声已经挪出去了，但再留一道保险：帧率掉下来就自动降倍率，
+   宁可糊一点也不要卡住。 */
+let FPS = 60, DPRCAP = 1.6;
+const FOV = 0.62;          // 与着色器共用，标注投影必须用同一个值
+function draw(){
+  const dpr = Math.min(devicePixelRatio||1, DPRCAP);
+  const w = Math.floor(innerWidth*dpr), h = Math.floor(innerHeight*dpr);
+  if(canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
+  gl.viewport(0,0,w,h);
+
+  /* 跟随模式：每帧把日下点经度解到指定高度角上。
+     物理上太阳当然是固定的，飞过去光就变了 —— 但做工具时「我要在这儿看掠射光」
+     才是真实需求，所以两种模式都留着，用按钮切。 */
+  if(S.sunFollow){
+    S.sunAz = sunLonFor(S.sunElev);
+  }
+  $('sun').value = Math.round(S.sunAz);
+  $('sunLab').textContent = Math.round(S.sunAz)+'°';
+
+  const C = buildCamera();
+
+  gl.uniform2f(U.uRes, w, h);
+  gl.uniform3fv(U.uCam, C.cam);
+  gl.uniformMatrix3fv(U.uBasis, false, C.basis);
+  gl.uniform3fv(U.uSun, sunVec());
+  gl.uniform1f(U.uExag, S.exag);
+  gl.uniform1f(U.uFov, FOV);
+  gl.uniform1i(U.uColor, S.color);
+  gl.uniform1f(U.uDetail, S.detail);
+  gl.uniform1f(U.uRmin, 1 + HMIN/RM*S.exag - 0.0005);
+  gl.uniform1f(U.uRmax, 1 + HMAX/RM*S.exag + 0.0005);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  drawLabels(C);
+  telemetry();
+}
+
+function fmtLat(v){ return Math.abs(v).toFixed(2)+'°'+(v>=0?'N':'S'); }
+function fmtLon(v){ return (((v%360)+360)%360).toFixed(2)+'°E'; }
+function row(k,v){ return '<div class="row"><span>'+k+'</span><b>'+v+'</b></div>'; }
+
+function telemetry(){
+  const horiz = Math.sqrt((RM+S.alt)*(RM+S.alt) - RM*RM);
+  // 圆轨道速度 v = sqrt(GM/r)，火星 GM = 42828 km^3/s^2
+  const v = Math.sqrt(42828/(RM+S.alt));
+  const per = 2*Math.PI*(RM+S.alt)/v/60;
+  const el = heightAtJS(S.lat, S.lon);
+  const gc = groundClearance();
+  const spinDeg = (MOTION.marsSpin / D2R).toFixed(1);
+  const simHours = MOTION.elapsed / 3600;
+  document.getElementById('navRows').innerHTML =
+    row('高度', S.alt.toFixed(0)+' km') +
+    '<div class="row"><span>离地高度</span><b style="color:'+
+      (gc<2?'var(--bad)':gc<15?'var(--warn)':'var(--ink)')+'">'+
+      (gc<2 ? '已钳到 2 km' : gc.toFixed(0)+' km')+'</b></div>' +
+    row('地平线距离', horiz.toFixed(0)+' km') +
+    row('圆轨速度', v.toFixed(2)+' km/s') +
+    row('环绕周期', per.toFixed(0)+' 分') +
+    row('模拟时间', (simHours < 1 ? (MOTION.elapsed/60).toFixed(1)+' 分' : simHours.toFixed(2)+' 时') + ' · '+MOTION.timeScale+'×') +
+    row('火星自转', spinDeg+'°') +
+    row('航向', S.hdg.toFixed(0)+'°') +
+    row('视角', S.pitch < 12 ? '近乎垂直向下'
+              : S.pitch > 96 ? '越过地平线'
+              : S.pitch.toFixed(0)+'° 前下方') +
+    '<div class="row"><span>帧率 · 倍率</span><b style="color:'+
+      (FPS<28?'var(--bad)':FPS<45?'var(--warn)':'var(--good)')+'">'+
+      FPS.toFixed(0)+' fps · ×'+DPRCAP.toFixed(2)+'</b></div>';
+  /* 太阳高度角是这个工具里最该被看见的数：地形立不立体全看它。
+     以前没有这一栏，所以「太阳几乎当顶」这个毛病一直没人发现。 */
+  const se = sunElevAt(S.lat, S.lon);
+  const seDesc = se < -0.5 ? '夜面'
+               : se < 3    ? '贴地平线'
+               : se < 20   ? '掠射 · 最出立体感'
+               : se < 55   ? '斜射'
+               :             '接近当顶 · 无影';
+  const seCol = se < -0.5 ? 'var(--dim)' : se < 20 ? 'var(--good)' : se < 55 ? 'var(--ink)' : 'var(--warn)';
+  document.getElementById('subRows').innerHTML =
+    row('纬度', fmtLat(S.lat)) +
+    row('经度', fmtLon(S.lon)) +
+    row('地表高程', el.toFixed(2)+' km') +
+    '<div class="row"><span>太阳高度角</span><b style="color:'+seCol+'">'+se.toFixed(1)+'°</b></div>' +
+    '<div class="row"><span>光照</span><b style="color:'+seCol+'">'+seDesc+'</b></div>' +
+    row('地形夸张', '×'+S.exag.toFixed(1));
+  $('landLab').textContent = fmtLat(S.lat)+' / '+fmtLon(S.lon);
+}
+
+
+/* ============================================================
+   地名标注
+   ------------------------------------------------------------
+   坐标全部是 IAU 正式命名的中心点，东经、行星中心纬度。
+   经度约定已经用数据本身核对过：MOLA 4ppd 的最高点落在
+   17.4°N / 226.9°E（奥林帕斯山顶 21.1 km），最低点落在
+   32.9°S / 62.1°E（希腊平原底），与 IAU 一致 —— 所以这里
+   可以直接用官方经纬度，不需要任何偏移。
+
+   rank：1 = 肉眼在轨道上就该看到的大地貌，2 = 中等，3 = 细节。
+   高度越低放出越多，避免高轨时糊成一片字。
+   ============================================================ */
+
+
+const KIND_COL = { mons:'#f5b76f', vallis:'#6fe3f5', planitia:'#a9c6d2',
+                   terra:'#c9b2ea', crater:'#7ee0a8', site:'#ff8f7a' };
+
+const ov = document.getElementById('ov');
+const ox = ov.getContext('2d');
+
+/* 把行星表面的一点投影到屏幕。
+   必须复用着色器那套映射，否则标注会整体偏一点点、而且随视角漂移：
+       uv = (frag*2 - res)/res.y
+       rd = normalize(basis * vec3(uv*FOV, 1))
+   反解就是 uv = (相机空间 xy / z) / FOV。 */
+function project(P, cam, R, Uv, F, W, H){
+  const d = [P[0]-cam[0], P[1]-cam[1], P[2]-cam[2]];
+  const z = d[0]*F[0]+d[1]*F[1]+d[2]*F[2];
+  if(z <= 1e-6) return null;                     // 在身后
+  const x = d[0]*R[0]+d[1]*R[1]+d[2]*R[2];
+  const y = d[0]*Uv[0]+d[1]*Uv[1]+d[2]*Uv[2];
+  const u = (x/z)/FOV, v = (y/z)/FOV;
+  return [ (u*H + W)/2, (H - v*H)/2 ];
+}
+
+/* 黄道面不是火星赤道面：火星黄赤交角约 25.2°。
+   这里用一条贴在行星外缘的参考环表示黄道面，背面用虚线压低，
+   这样它既能看出倾角，也不会假装自己是行星表面的一条线。 */
+function drawEclipticPlane(C){
+  if(!S.ecliptic) return;
+  const W = innerWidth, H = innerHeight;
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const B = C.basis;
+  const R = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
+  const axisA = [1, 0, 0];
+  const axisB = [0, Math.sin(MARS_OBLIQUITY), -Math.cos(MARS_OBLIQUITY)];
+  const ringRadius = 1.07;
+  const samples = 192;
+  const points = [];
+
+  for(let i=0; i<=samples; i++){
+    const a = i/samples * Math.PI*2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const d = [
+      axisA[0]*ca + axisB[0]*sa,
+      axisA[1]*ca + axisB[1]*sa,
+      axisA[2]*ca + axisB[2]*sa,
+    ];
+    const P = [d[0]*ringRadius, d[1]*ringRadius, d[2]*ringRadius];
+    const sp = project(P, C.cam, R, Uv, F, W, H);
+    const front = (C.cam[0]-P[0])*P[0] + (C.cam[1]-P[1])*P[1] + (C.cam[2]-P[2])*P[2] > 0;
+    points.push({sp, front});
+  }
+
+  const strokePass = (front, color, width, dash) => {
+    ox.save();
+    ox.setTransform(dpr,0,0,dpr,0,0);
+    ox.strokeStyle = color;
+    ox.lineWidth = width;
+    ox.setLineDash(dash);
+    ox.lineCap = 'round';
+    ox.beginPath();
+    let drawing = false;
+    for(const p of points){
+      if(!p.sp || p.front !== front){ drawing = false; continue; }
+      if(!drawing){ ox.moveTo(p.sp[0], p.sp[1]); drawing = true; }
+      else ox.lineTo(p.sp[0], p.sp[1]);
+    }
+    ox.stroke();
+    ox.restore();
+  };
+
+  strokePass(false, 'rgba(111,227,245,.22)', 1.1, [5,6]);
+  strokePass(true, 'rgba(111,227,245,.86)', 1.6, []);
+}
+
+function drawLabels(C){
+  const W = innerWidth, H = innerHeight;
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const pw = Math.floor(W*dpr), ph = Math.floor(H*dpr);
+  if(ov.width!==pw || ov.height!==ph){ ov.width=pw; ov.height=ph; }
+  ox.setTransform(dpr,0,0,dpr,0,0);
+  ox.clearRect(0,0,W,H);
+  drawEclipticPlane(C);
+  if(!S.names) return;
+
+  const cam = C.cam, B = C.basis;
+  const R  = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
+  const lim = S.dense ? 3 : (S.alt > 2500 ? 1 : S.alt > 700 ? 2 : 3);
+
+  const cand = [];
+  for(const [cn, ln, lat, lon, rank, kind] of PLACES){
+    if(kind==='site' && !S.sites) continue;
+    if(rank > lim) continue;
+
+    const la = lat*D2R, lo = lon*D2R;
+    const n = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
+    // 贴在被夸张过的地形面上，否则山顶标注会陷进山体里
+    const r = 1 + heightAtJS(lat, lon)*S.exag/RM;
+    const P = [n[0]*r, n[1]*r, n[2]*r];
+
+    /* 地平线剔除：球面上一点可见 ⟺ (相机−该点)·该点 > 0。
+       再加一点余量，让快要转过地平线的名字淡出而不是硬闪。 */
+    const v = [cam[0]-P[0], cam[1]-P[1], cam[2]-P[2]];
+    const vl = Math.hypot(...v), pl = Math.hypot(...P);
+    const k = (v[0]*P[0]+v[1]*P[1]+v[2]*P[2])/(vl*pl);
+    if(k <= 0.015) continue;
+    const fade = Math.min(1, (k-0.015)/0.10);
+
+    const sp = project(P, cam, R, Uv, F, W, H);
+    if(!sp) continue;
+    if(sp[0] < -120 || sp[0] > W+120 || sp[1] < -40 || sp[1] > H+40) continue;
+
+    cand.push({ cn, ln, kind, rank, x:sp[0], y:sp[1], d:vl, a:fade });
+  }
+
+  // 近的、重要的先占位，剩下的挤不下就不画
+  cand.sort((a,b)=> (a.rank-b.rank) || (a.d-b.d));
+
+  /* 左右两块面板压在覆盖层之上，画到那底下的名字等于白画 —— 
+     直接把它们当成已占位的方块，让排版算法自己绕开。 */
+  const boxes = [];
+  for(const el of document.querySelectorAll('.panel,.tele')){
+    const r = el.getBoundingClientRect();
+    boxes.push([r.left-4, r.top-4, r.width+8, r.height+8]);
+  }
+  ox.textBaseline = 'middle';
+  for(const c of cand){
+    const two = (c.rank === 1 || c.kind === 'site');
+    ox.font = '11px ui-monospace,SFMono-Regular,Menlo,monospace';
+    const w1 = ox.measureText(c.cn).width;
+    ox.font = '9px ui-monospace,SFMono-Regular,Menlo,monospace';
+    const w2 = two ? ox.measureText(c.ln).width : 0;
+    const bw = Math.max(w1, w2) + 12, bh = two ? 22 : 14;
+    const bx = c.x + 7, by = c.y - bh/2;
+    if(bx < -20 || bx+bw > W+20) continue;
+
+    let hit = false;
+    for(const b of boxes)
+      if(bx < b[0]+b[2] && bx+bw > b[0] && by < b[1]+b[3] && by+bh > b[1]){ hit = true; break; }
+    if(hit) continue;
+    boxes.push([bx, by, bw, bh]);
+
+    const col = KIND_COL[c.kind] || '#cfe6ee';
+    ox.globalAlpha = c.a;
+    ox.shadowColor = 'rgba(0,0,0,.9)'; ox.shadowBlur = 4;
+
+    // 标记点
+    ox.strokeStyle = col; ox.lineWidth = 1.2;
+    if(c.kind === 'site'){
+      ox.beginPath();
+      ox.moveTo(c.x-3.5, c.y); ox.lineTo(c.x+3.5, c.y);
+      ox.moveTo(c.x, c.y-3.5); ox.lineTo(c.x, c.y+3.5);
+      ox.stroke();
+    } else {
+      ox.beginPath(); ox.arc(c.x, c.y, 3, 0, 6.2832); ox.stroke();
+      ox.globalAlpha = c.a*0.35;
+      ox.fillStyle = col; ox.fill();
+      ox.globalAlpha = c.a;
+    }
+
+    ox.fillStyle = col;
+    ox.font = '11px ui-monospace,SFMono-Regular,Menlo,monospace';
+    ox.fillText(c.cn, c.x+7, two ? c.y-5 : c.y);
+    if(two){
+      ox.globalAlpha = c.a*0.6;
+      ox.font = '9px ui-monospace,SFMono-Regular,Menlo,monospace';
+      ox.fillText(c.ln, c.x+7, c.y+7);
+    }
+    ox.shadowBlur = 0; ox.globalAlpha = 1;
+  }
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+let drag=false, px=0, py=0;
+canvas.addEventListener('pointerdown', e=>{ if(orbitUI?.paused || LAND.on) return; drag=true; px=e.clientX; py=e.clientY; try { canvas.setPointerCapture(e.pointerId); } catch {} });
+canvas.addEventListener('pointerup', ()=>drag=false);
+canvas.addEventListener('pointercancel', ()=>drag=false);
+/* 拖拽 = 抓住地面拖。
+   旧版把鼠标 X 写死成经度、Y 写死成纬度，但屏幕的上方和右方是由相机基决定的：
+   默认航向 90°（朝东）时，屏幕上方其实是「东」、右方是「南」。
+   于是横拖会让地面上下跑，而且方向还是反的。
+   正确做法是把鼠标位移投到相机的水平屏幕轴上，再换算回经纬度。 */
+canvas.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  const dx = e.clientX-px, dy = e.clientY-py;
+  px=e.clientX; py=e.clientY;
+  if(!dx && !dy) return;
+
+  const CAM = buildCamera(), B = CAM.basis;
+  const Rv = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
+  const la = S.lat*D2R, lo = S.lon*D2R;
+  const up = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
+
+  /* 「屏幕上方」在地面上对应的方向。
+     Uv 和 F 的水平分量都沿着镜头前方（系数分别是 cos(俯仰) 和 sin(俯仰)），
+     加起来再归一化，垂直俯视和平视都不会退化。 */
+  const flat = v => { const d = v[0]*up[0]+v[1]*up[1]+v[2]*up[2];
+                      return [v[0]-up[0]*d, v[1]-up[1]*d, v[2]-up[2]*d]; };
+  const fu = flat(Uv), ff = flat(F);
+  let g = [fu[0]+ff[0], fu[1]+ff[1], fu[2]+ff[2]];
+  const gl2 = Math.hypot(...g);
+  if(gl2 < 1e-6) return;
+  g = g.map(v=>v/gl2);
+  // Rv = 上 × 前，本来就与 up 垂直，已经是水平的
+
+  /* 拖拽速度不该是个魔数。要「指哪跟哪」，每像素对应多少地面弧度，
+     取决于光标底下那一点离镜头多远 —— 于是照着光标打一条射线，和地形壳求交。
+     用屏幕中心算是不够的：俯仰 74° 时中心早就是天空了，而画面下半部分的
+     地面比中心近得多，同一个增益在那儿会快上两三倍。
+     光标落在天上就退回星下点距离；贴地平线时交点会跑到极远，钳一下，
+     免得一拖飞过半个星球。 */
+  const H2 = innerHeight, W2 = innerWidth;
+  const cu = ((e.clientX*2 - W2)/H2)*FOV, cv = ((H2 - e.clientY)*2 - H2)/H2*FOV;
+  let cd = [Rv[0]*cu+Uv[0]*cv+F[0], Rv[1]*cu+Uv[1]*cv+F[1], Rv[2]*cu+Uv[2]*cv+F[2]];
+  const cdl = Math.hypot(...cd); cd = cd.map(v=>v/cdl);
+
+  const r0 = 1 + heightAtJS(S.lat, S.lon)*S.exag/RM;
+  const ro = CAM.cam;
+  const bq = ro[0]*cd[0]+ro[1]*cd[1]+ro[2]*cd[2];
+  const cq = ro[0]*ro[0]+ro[1]*ro[1]+ro[2]*ro[2] - r0*r0;
+  const disc = bq*bq - cq;
+  let dist = S.alt;                                  // 光标在天上就退回星下点
+  if(disc > 0){ const t = -bq - Math.sqrt(disc); if(t > 0) dist = t*RM; }
+  dist = Math.max(S.alt*0.5, Math.min(dist, S.alt*8 + 200));
+  const k = dist * (2*FOV/H2) / RM / D2R;            // 度/像素
+
+  /* 竖着拖要再补一刀。斜视时地面被透视压扁：视线越贴近地面，镜头前后走
+     同样的距离，画面上挪动的像素越少 —— 只用同一个增益，竖拖会明显比横拖迟钝
+     （实测默认视角下只有横向的三分之一）。
+     补偿量是视线与前向的夹角，贴地平线时会发散，钳到 3 倍为止。 */
+  const gd = g[0]*cd[0]+g[1]*cd[1]+g[2]*cd[2];
+  const ky = Math.min(3, 1/Math.sqrt(Math.max(0.01, 1-gd*gd)));
+
+  /* 抓住地面：地面往鼠标方向走 ⟺ 镜头往反方向走。
+     鼠标右移 → 镜头沿 −屏幕右；鼠标下移 → 镜头沿 +屏幕上（也就是往前飞）。 */
+  const fy = dy*ky;
+  const mv = [-dx*Rv[0]+fy*g[0], -dx*Rv[1]+fy*g[1], -dx*Rv[2]+fy*g[2]];
+
+  const east  = [-Math.sin(lo), 0, Math.cos(lo)];
+  const north = [-Math.sin(la)*Math.cos(lo), Math.cos(la), -Math.sin(la)*Math.sin(lo)];
+  const dN = mv[0]*north[0]+mv[1]*north[1]+mv[2]*north[2];
+  const dE = mv[0]*east[0] +mv[1]*east[1] +mv[2]*east[2];
+  // 高纬度时同样的地面距离对应更多经度，除以 cosφ 才能保持手感一致
+  const clat = Math.max(0.08, Math.cos(la));
+  S.lat = Math.max(-88, Math.min(88, S.lat + dN*k));
+  S.lon += dE*k/clat;
+});
+canvas.addEventListener('wheel', e=>{
+  if(orbitUI?.paused || LAND.on) return;
+  e.preventDefault();
+  S.alt = Math.max(6, Math.min(12000, S.alt * Math.exp(e.deltaY*0.0015)));
+  document.getElementById('alt').value = altToSlider(S.alt);
+  document.getElementById('altLab').textContent = S.alt.toFixed(0)+' km';
+}, {passive:false});
+
+/* 高度滑块用对数刻度：6 km … 12000 km */
+function sliderToAlt(v){ return 6*Math.pow(12000/6, v/1000); }
+function altToSlider(a){ return 1000*Math.log(a/6)/Math.log(12000/6); }
+
+const $ = id => document.getElementById(id);
+$('alt').oninput = () => { S.alt = sliderToAlt(+$('alt').value); $('altLab').textContent = S.alt.toFixed(0)+' km'; };
+$('pit').oninput = () => { S.pitch = +$('pit').value; $('pitLab').textContent = S.pitch+'°'; };
+$('hdg').oninput = () => { S.hdg = +$('hdg').value; $('hdgLab').textContent = S.hdg+'°'; };
+$('exg').oninput = () => { S.exag = +$('exg').value; $('exgLab').textContent = '×'+S.exag.toFixed(1); };
+$('sun').oninput = () => { S.sunAz = +$('sun').value; $('sunLab').textContent = S.sunAz+'°';
+                           MOTION.sunAz0 = ((S.sunAz + MOTION.marsSpin/D2R) % 360 + 360) % 360;
+                           setSunMode(false); };          // 手动拖方位 = 切回固定
+$('elv').oninput = () => { S.sunElev = +$('elv').value; $('elvLab').textContent = S.sunElev+'°';
+                           setSunMode(true); };           // 拖高度角 = 切回跟随
+$('dec').oninput = () => { S.sunDec = +$('dec').value; $('decLab').textContent = S.sunDec.toFixed(1)+'°'; };
+$('det').oninput = () => { S.detail = +$('det').value; $('detLab').textContent = S.detail.toFixed(2)+' km'; };
+
+function setSunMode(follow){
+  if(!follow) MOTION.sunAz0 = ((S.sunAz + MOTION.marsSpin/D2R) % 360 + 360) % 360;
+  S.sunFollow = follow;
+  $('sFol').classList.toggle('on', follow);
+  $('sFix').classList.toggle('on', !follow);
+}
+$('sFix').onclick = () => setSunMode(false);
+$('sFol').onclick = () => setSunMode(true);
+$('sWest').onclick = () => { S.sunSide=-1; $('sWest').classList.add('on'); $('sEast').classList.remove('on'); setSunMode(true); };
+$('sEast').onclick = () => { S.sunSide= 1; $('sEast').classList.add('on'); $('sWest').classList.remove('on'); setSunMode(true); };
+
+const VIEWS = [['cReal',0],['cTopo',1],['cNorm',2],['cAlb',3],['cClay',4]];
+function setView(v){
+  S.color = v;
+  for(const [id,k] of VIEWS) $(id).classList.toggle('on', k===v);
+}
+for(const [id,k] of VIEWS) $(id).onclick = () => setView(k);
+function setNames(on){ S.names=on; $('nOn').classList.toggle('on',on); $('nOff').classList.toggle('on',!on); }
+$('nOn').onclick  = () => setNames(true);
+$('nOff').onclick = () => setNames(false);
+$('nSite').onclick  = () => { S.sites = !S.sites; $('nSite').classList.toggle('on', S.sites); };
+$('nDense').onclick = () => { S.dense = !S.dense; $('nDense').classList.toggle('on', S.dense); };
+
+$('flyOn').onclick  = () => { S.fly=true;  $('flyOn').classList.add('on');  $('flyOff').classList.remove('on'); };
+$('flyOff').onclick = () => { S.fly=false; $('flyOff').classList.add('on'); $('flyOn').classList.remove('on'); };
+
+function setEcliptic(on){
+  S.ecliptic = on;
+  $('eclOn').classList.toggle('on', on);
+  $('eclOff').classList.toggle('on', !on);
+}
+$('eclOn').onclick = () => setEcliptic(true);
+$('eclOff').onclick = () => setEcliptic(false);
+
+const jp = $('jump');
+for(const [n,la,lo,hd,al] of JUMPS){
+  const b = document.createElement('button');
+  b.textContent = n;
+  b.onclick = () => {
+    S.lat=la; S.lon=lo; S.hdg=hd; S.alt=al;
+    $('alt').value = altToSlider(al); $('altLab').textContent = al+' km';
+    $('hdg').value = hd; $('hdgLab').textContent = hd+'°';
+  };
+  jp.appendChild(b);
+}
+
+/* ============================================================
+   降落
+   ------------------------------------------------------------
+   点下去之后不是直接跳转 —— 先把镜头压下去。高度按指数往 6 km 收，
+   俯仰同时拉向垂直向下，2.4 秒。这一段的意义是让「换了个页面」变成
+   「飞下去了」：两个场景用的是同一份 MOLA 高程、同一个经纬度，
+   中间只差一段镜头。
+   ============================================================ */
+const LAND = { on:false, t0:0, ms:2400, alt0:0, pitch0:0, lat:0, lon:0 };
+function beginLanding(){
+  if(LAND.on) return;
+  if(ORBIT_GAME && orbitUI?.paused) return;
+  if(JOURNEY && getJourney().landed && !FLIGHT_ORBIT) {
+    location.href = sceneURL(getJourney().campuses.length ? 'park' : 'surface');
+    return;
+  }
+  LAND.on = true; LAND.t0 = performance.now();
+  LAND.alt0 = S.alt; LAND.pitch0 = S.pitch;
+  LAND.lat = S.lat; LAND.lon = ((S.lon % 360) + 360) % 360;
+  if (ORBIT_GAME) {
+    const isCoprates = Math.abs(LAND.lat - DEFAULT_SITE.lat) < .001 && Math.abs(LAND.lon - DEFAULT_SITE.lon) < .001;
+    if (JOURNEY && !FLIGHT_ORBIT) updateJourney({ site: { lat: LAND.lat, lon: LAND.lon, name: isCoprates ? DEFAULT_SITE.name : '自选着陆区' } });
+    orbitUI.setActions([{id:'landing',label:'正在进入大气层',primary:true,disabled:true}]);
+    orbitUI.setObjective({ kicker:'轨道 / 进入', title:'跟随光，落向谷地', body:'轨道坐标已锁定。MU-7 将在着陆后展开。', progress:1 });
+  }
+  if (REDUCED_MOTION) LAND.ms = 80;
+  S.fly = false;
+  $('landBtn').textContent = '降落中…';
+  $('landBtn').disabled = true;
+}
+function stepLanding(now){
+  if(!LAND.on) return;
+  const t = Math.min(1, (now - LAND.t0)/LAND.ms);
+  const e = t*t*(3-2*t);
+  S.alt   = LAND.alt0 * Math.pow(6/LAND.alt0, e);      // 指数收高度，视觉上才是匀速下坠
+  S.pitch = LAND.pitch0 + (14 - LAND.pitch0)*e;
+  $('alt').value = altToSlider(S.alt);
+  $('altLab').textContent = S.alt.toFixed(0)+' km';
+  if(t > 0.55) $('fade').classList.add('on');
+  if(t >= 1){
+    LAND.on = false;
+    location.href = FLIGHT_ORBIT ? sceneURL('surface', { from:'orbit', explore:1, lat:LAND.lat.toFixed(4), lon:LAND.lon.toFixed(4) }) : JOURNEY ? sceneURL('surface', { from:'orbit' }) : 'mars-vista.html?from=orbit&lat=' + LAND.lat.toFixed(4) +
+                    '&lon=' + LAND.lon.toFixed(4);
+  }
+}
+$('landBtn').onclick = beginLanding;
+
+function advanceMotion(dt){
+  if(!S.fly || drag || LAND.on) return 0;
+  const simDt = dt * MOTION.timeScale;
+  MOTION.elapsed += simDt;
+  MOTION.marsSpin = (MOTION.marsSpin + simDt/MOTION.marsDay * Math.PI*2) % (Math.PI*2);
+  if(!S.sunFollow){
+    S.sunAz = ((MOTION.sunAz0 - MOTION.marsSpin/D2R) % 360 + 360) % 360;
+  }
+  return simDt;
+}
+
+/* ============================================================
+   主循环
+   ============================================================ */
+let last = performance.now();
+function loop(now){
+  const dt = orbitUI?.paused || document.hidden ? 0 : Math.min(0.05, (now-last)/1000); last = now;
+  if(dt > 0){
+    FPS = FPS*0.92 + (1/Math.max(dt,1e-4))*0.08;
+    if(FPS < 32 && DPRCAP > 0.8)      DPRCAP = Math.max(0.8, DPRCAP - 0.03);
+    else if(FPS > 55 && DPRCAP < qualityLimit) DPRCAP = Math.min(qualityLimit, DPRCAP + 0.01);
+  }
+  DPRCAP = Math.min(DPRCAP, qualityLimit);
+  if(orbitUI?.paused && LAND.on) LAND.t0 += (now - (LAND.pauseLast || now));
+  LAND.pauseLast = now;
+  if(!orbitUI?.paused) stepLanding(now);
+  if(S.fly && !drag && !LAND.on){
+    advanceMotion(dt);
+    // 沿航向以真实圆轨角速度前进
+    const v = Math.sqrt(42828/(RM+S.alt));
+    const w = v/(RM+S.alt) * 180/Math.PI;      // 度/秒
+    const h = S.hdg*D2R;
+    const clat = Math.max(0.05, Math.cos(S.lat*D2R));
+    S.lat += w*dt*Math.cos(h)*MOTION.timeScale;
+    S.lon += w*dt*Math.sin(h)/clat*MOTION.timeScale;
+    if(S.lat >  88){ S.lat =  88; }
+    if(S.lat < -88){ S.lat = -88; }
+  }
+  draw();
+  if(ORBIT_GAME && !LAND.on && !orbitUI?.paused) updateOrbitMission(now);
+  requestAnimationFrame(loop);
+}
+
+let telemetryAt = 0;
+function updateOrbitMission(now) {
+  if (!orbitUI || now - telemetryAt < 250) return;
+  telemetryAt = now;
+  const state = getJourney() || {site:DEFAULT_SITE,landed:false,campuses:[],commissioned:false};
+  const longitude = ((S.lon % 360) + 360) % 360;
+  orbitUI.setTelemetry([
+    { label:'轨道高度', value:S.alt.toFixed(0) + ' km' },
+    { label:'星下点纬度', value:Math.abs(S.lat).toFixed(3) + (S.lat < 0 ? '°S' : '°N') },
+    { label:'星下点经度', value:longitude.toFixed(3) + '°E' },
+    { label:'地表高程', value:heightAtJS(S.lat, S.lon).toFixed(2) + ' km' },
+  ]);
+  orbitUI.setObjective({
+    kicker:state.commissioned ? '先遣计划 / 已完成' : state.landed ? '轨道 / 重返站点' : '01 / 轨道选址',
+    title:FLIGHT_ORBIT ? '游隼已切入火星轨道' : state.commissioned ? '荒原上已有一处灯火' : state.landed ? '地面的工作还在继续' : '选择第一处着陆点',
+    body:FLIGHT_ORBIT ? '正在随轨道前进。拖动调整位置，选择新的区域降落，或返回原先遣站。' : state.landed ? `${state.site.name}的进度已保存。可以继续观察火星，或返回原站点。` :
+      '推荐科普剌忒斯谷地。拖动观察其他区域，滚轮调整高度；准备好后，在当前星下点降落。',
+  });
+}
+
+if (ORBIT_GAME) {
+  orbitUI = mountJourneyUI({ scene:'orbit', title:'火星在轨', onPause:() => { drag=false; } });
+  const state = getJourney() || {site:DEFAULT_SITE,landed:false,campuses:[],commissioned:false};
+  orbitUI.setActions([
+    { id:'recommended', label:state.landed ? '定位原站点' : '定位推荐谷地', onClick:() => {
+      const site = getJourney()?.landed ? getJourney().site : DEFAULT_SITE;
+      Object.assign(S, { lat:site.lat, lon:site.lon, alt:1800, pitch:5, sunFollow:true, sunElev:28, fly:false });
+      $('alt').value = altToSlider(S.alt); $('altLab').textContent = S.alt + ' km';
+      orbitUI.toast(`${site.name} · 着陆坐标已对准`);
+    } },
+    { id:'land', label:FLIGHT_ORBIT ? '在当前区域降落' : state.landed ? '返回' + (state.campuses.length ? '先遣站' : '勘测现场') : '确认坐标，开始降落', primary:true, onClick:beginLanding },
+    ...(FLIGHT_ORBIT && state.landed ? [{id:'base',label:'返回先遣任务',onClick:()=>{location.href=sceneURL(state.campuses.length?'park':'surface');}}] : []),
+    ...(FLIGHT_ORBIT ? [{id:'track',label:S.fly?'锁定星下点':'跟随轨道',onClick:()=>{
+      S.fly=!S.fly;document.querySelector('[data-action=track]').textContent=S.fly?'锁定星下点':'跟随轨道';
+    }}] : []),
+  ]);
+  updateOrbitMission(performance.now() + 300);
+  addEventListener('cosmos:quality', event => { qualityLimit = event.detail === 'low' ? 1 : 1.6; DPRCAP = Math.min(DPRCAP, qualityLimit); });
+}
+
+/* 启动 */
+$('altLab').textContent = S.alt+' km';
+$('alt').value = altToSlider(S.alt);
+$('pitLab').textContent = S.pitch+'°';
+$('hdgLab').textContent = S.hdg+'°';
+$('exgLab').textContent = '×'+S.exag.toFixed(1);
+$('elvLab').textContent = S.sunElev+'°';
+$('decLab').textContent = S.sunDec.toFixed(1)+'°';
+$('detLab').textContent = S.detail.toFixed(2)+' km';
+/* 开局就把太阳解到 12° 掠射，而不是沿用一个写死的方位角。
+   在默认星下点上这大约是 132°E —— 旧默认值 215° 的高度角是 87.4°，
+   基本就是正当顶。 */
+S.sunAz = sunLonFor(S.sunElev);
+MOTION.sunAz0 = S.sunAz;
+$('sun').value = Math.round(S.sunAz);
+$('sunLab').textContent = Math.round(S.sunAz)+'°';
+document.getElementById('busy').style.display = 'none';
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
