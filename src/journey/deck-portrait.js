@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const FOV = 24, PITCH = THREE.MathUtils.degToRad(24), YAW = Math.PI / 4, SETTLE_MS = 2600, SHOTS = 8;
+const FOV = 24, PITCH = THREE.MathUtils.degToRad(24), YAW = Math.PI / 4, SETTLE_MS = 2600, SHOTS = 8, MAX_SIDE = 1024;
 const TITLE_BAND = .28, SWITCH_BAND = .12; // top/bottom shares kept clear for the title and the subject arrows
 
 /** Command-deck portrait: a detached copy of one craft seen from the fixed 45° front quarter.
@@ -10,6 +10,9 @@ const TITLE_BAND = .28, SWITCH_BAND = .12; // top/bottom shares kept clear for t
 export function mountDeckPortrait({renderer, host}) {
   const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
   canvas.className = 'cd-portrait-canvas'; canvas.setAttribute('aria-hidden', 'true');
+  // Sized by its box, never by its pixels: before the deck stylesheet arrives an unstyled canvas takes its
+  // pixel size as layout size, and resizing to box × dpr would double it on every draw until memory runs out.
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
   host.prepend(canvas);
 
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(FOV, 1, .05, 4000);
@@ -38,8 +41,8 @@ export function mountDeckPortrait({renderer, host}) {
     host.classList.remove('cd-has-portrait');
   }
   function frameSize() {
-    const rect = canvas.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
-    return [Math.round(rect.width * dpr), Math.round(rect.height * dpr)];
+    const rect = canvas.getBoundingClientRect(), scale = Math.min(devicePixelRatio || 1, 2, MAX_SIDE / Math.max(rect.width, rect.height, 1));
+    return [Math.round(rect.width * scale), Math.round(rect.height * scale)];
   }
   // Silhouette samples from visible vertices: box corners alone leave vehicles lost in empty frame.
   function visiblePoints(root) {

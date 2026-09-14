@@ -52,6 +52,8 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
       <section class="cd-panel cd-mission-panel" data-pane="mission"><button type="button" class="cd-panel-title cd-mission-title" data-action="mission">任务详情</button><p class="cd-mission-body"></p><div class="cd-progress cd-mission-progress" hidden><i></i></div><ol class="cd-mission-steps"></ol><button class="cd-emergency" type="button" hidden></button></section>
     </div></div>
     <dialog class="cd-log"><header><div><span>COMMAND LOG</span><h2>任务通信</h2></div><button type="button" class="cd-close-log" aria-label="关闭消息日志">关闭 <kbd>Esc</kbd></button></header><div class="cd-log-tools"><span class="cd-log-count"></span><button type="button" class="cd-read-all">全部标为已读</button></div><div class="cd-log-list"></div><footer class="cd-log-storage">消息保存在当前浏览器，最多保留80条。</footer></dialog>`;
+  // Keep the deck out of sight until its stylesheet applies; on a slow host it would otherwise flash unstyled.
+  if(!css.sheet){root.style.visibility='hidden';const reveal=()=>{root.style.visibility='';};css.addEventListener('load',reveal,{once:true});css.addEventListener('error',reveal,{once:true});}
   document.body.append(root);
   const $ = selector => root.querySelector(selector);
   const refs = Object.fromEntries(['time','site','communications','heading','status','title','subtitle'].map(id=>[id,$(`.cd-${id}`)]));
