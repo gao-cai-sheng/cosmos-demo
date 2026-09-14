@@ -1,0 +1,96 @@
+{
+  "nx07": {
+    "source": "/Users/gao/Desktop/\u5947\u6280\u6deb\u5de7/exploration-starship/Exploration_NX07.blend",
+    "file": "assets/models/nx07.glb",
+    "bytes": 8277808,
+    "parts": [
+      {
+        "name": "body",
+        "vertices": 145562,
+        "polygons": 250057,
+        "pivot": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "ares": {
+    "source": "/Users/gao/Desktop/\u5947\u6280\u6deb\u5de7/mars-rover-astra/ARES_06_Mars_Rover.blend",
+    "file": "assets/models/ares.glb",
+    "bytes": 21007432,
+    "parts": [
+      {
+        "name": "body",
+        "vertices": 119072,
+        "polygons": 215368,
+        "pivot": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "wheel_0",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          1.7799997329711914,
+          -3.450000286102295,
+          1.0449999570846558
+        ]
+      },
+      {
+        "name": "wheel_1",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          -1.7800002098083496,
+          -3.4499998092651367,
+          1.0449999570846558
+        ]
+      },
+      {
+        "name": "wheel_2",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          1.7799999713897705,
+          0.479999840259552,
+          1.0449999570846558
+        ]
+      },
+      {
+        "name": "wheel_3",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          -1.7799999713897705,
+          0.4800001382827759,
+          1.0449999570846558
+        ]
+      },
+      {
+        "name": "wheel_4",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          1.7800002098083496,
+          2.6599998474121094,
+          1.0449999570846558
+        ]
+      },
+      {
+        "name": "wheel_5",
+        "vertices": 32576,
+        "polygons": 31176,
+        "pivot": [
+          -1.7799997329711914,
+          2.6600003242492676,
+          1.0449999570846558
+        ]
+      }
+    ]
+  }
+}

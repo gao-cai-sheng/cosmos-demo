@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>生活舱 · 单体密闭</title>
+<style>body{margin:0;background:#dde2e3;color:#24343e;font:14px system-ui}canvas{display:block}header{position:absolute;top:32px;left:40px}h1{font-size:25px;font-weight:500;margin:8px 0}small{letter-spacing:3px}nav{position:absolute;bottom:20px;left:20px;right:20px;display:flex;flex-wrap:wrap;gap:8px}button{padding:10px 18px;border:1px solid #9aa8ae;background:#ffffffb0;color:#24343e;cursor:pointer}p{color:#61717b} .flight-touch{display:none}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<header><small>COSMOS / REFUGE</small><h1>生活舱 · 密闭球形舱体</h1><p>拖动旋转 · 滚轮缩放</p></header><nav><button data-view="hero">透视</button><button data-view="top">俯视</button><button data-view="front">正视</button><button data-view="side">侧视</button><button data-view="belly">腹部</button><button data-view="cargo">舱内视角</button><button data-view="aft">气闸外门</button></nav>
+<script type="module">
+import * as THREE from 'three';
+import {createHabitat} from '../src/journey/habitat-model.js';
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdde2e3);
+const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,.1,200);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.append(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x66757b,2.3));const sun=new THREE.DirectionalLight(0xfff9ed,3.2);sun.position.set(-12,24,15);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35});sun.shadow.normalBias=.035;scene.add(sun);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xcbd3d5,roughness:1}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const grid=new THREE.GridHelper(100,100,0xb4c0c4,0xc2cccf);grid.position.y=.005;scene.add(grid);
+const pod=createHabitat();scene.add(pod.group);
+let az=.72,el=.48,radius=23,interior=false;
+const views={hero:[.72,.48,18],top:[0,Math.PI/2-.001,20],front:[0,.13,18],side:[Math.PI/2,.12,18],belly:[.6,-.5,18],cargo:[.72,.48,20],aft:[.72,.48,18]};
+function render(){if(interior){camera.position.set(0,2.45,1.25);camera.lookAt(0,2,-1);camera.fov=70;camera.updateProjectionMatrix();floor.visible=grid.visible=false;renderer.render(scene,camera);return;}camera.fov=38;camera.updateProjectionMatrix();camera.position.set(Math.sin(az)*Math.cos(el)*radius,2.5+Math.sin(el)*radius,Math.cos(az)*Math.cos(el)*radius);camera.lookAt(0,2.5,0);floor.visible=grid.visible=el>=0;renderer.render(scene,camera);}
+for(const b of document.querySelectorAll('button'))b.onclick=()=>{[az,el,radius]=views[b.dataset.view];interior=b.dataset.view==='cargo';pod.setDoors(b.dataset.view==='aft'?'outer':'closed');render();};
+let drag=null;renderer.domElement.onpointerdown=e=>{drag=[e.clientX,e.clientY];renderer.domElement.setPointerCapture(e.pointerId);};renderer.domElement.onpointermove=e=>{if(!drag)return;az-=(e.clientX-drag[0])*.008;el=THREE.MathUtils.clamp(el+(e.clientY-drag[1])*.008,-1.5,1.57);drag=[e.clientX,e.clientY];render();};renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>drag=null;renderer.domElement.onwheel=e=>{e.preventDefault();radius=THREE.MathUtils.clamp(radius+e.deltaY*.025,8,40);render();};onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);render();};render();
+
+</script></html>

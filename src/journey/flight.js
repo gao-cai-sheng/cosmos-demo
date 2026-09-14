@@ -1,186 +1,183 @@
 import * as THREE from 'three';
-import { makeDriveInput } from '../../tools/rover/输入.js';
-import { localToGeo } from './route.js';
+import {makeDriveInput} from '../../tools/rover/输入.js';
+import {createKestrel} from './kestrel-model.js';
+import {localToGeo} from './route.js';
+import {NX07,solveSupport} from './landing-support.js';
 
-/** A small VTOL courier with inertial motion, terrain clearance and orbit handoff. */
-export function createFlyer({ scene, camera, canvas, heightAt, blocked, ceilingAt, site, onBoard, onLand, onOrbit, notify }) {
-  let active=false, paused=false, landing=false, transfer=null, speed=0, vertical=0, yaw=0, camYaw=0, camPitch=.24, distance=22, view=0;
-  const pos=new THREE.Vector3(), look=new THREE.Vector3();
-  const ctl=makeDriveInput(window,{canvas,enabled:false,touch:false});
-  const craft=new THREE.Group();craft.name='KESTREL orbital courier';craft.visible=false;scene.add(craft);
-  // Visual reference: swept pearl hull and three raised nacelles. +Z is forward.
-  // Existing game scale: 13 m beam; origin is 2.3 m above the landing surface.
-  const white=new THREE.MeshStandardMaterial({color:0xe4e7e5,roughness:.38,metalness:.32});
-  const panel=new THREE.MeshStandardMaterial({color:0xc8cecf,roughness:.48,metalness:.38});
-  const dark=new THREE.MeshStandardMaterial({color:0x202c34,roughness:.44,metalness:.65});
-  const glass=new THREE.MeshStandardMaterial({color:0x071c2b,roughness:.18,metalness:.65});
-  const light=new THREE.MeshStandardMaterial({color:0x53caff,emissive:0x0799ed,emissiveIntensity:1.8,roughness:.26,metalness:.3});
-  const mesh=(geo,mat,x=0,y=0,z=0)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);craft.add(m);m.castShadow=true;m.receiveShadow=true;return m;};
-  const sphere=new THREE.SphereGeometry(1,48,24);
-  const ellipsoid=(mat,x,y,z,sx,sy,sz)=>{const m=mesh(sphere,mat,x,y,z);m.scale.set(sx,sy,sz);return m;};
-  // Closed loft, with a rounded perimeter and a broad aft shoulder tapering to the bow.
-  const outline=new THREE.Shape();
-  outline.moveTo(0,7.2);
-  outline.bezierCurveTo(2.25,7.2,5.8,1.4,6.45,-2.6);
-  outline.bezierCurveTo(6.7,-4.3,5.5,-4.65,3.7,-4.1);
-  outline.bezierCurveTo(1.9,-3.4,-1.9,-3.4,-3.7,-4.1);
-  outline.bezierCurveTo(-5.5,-4.65,-6.7,-4.3,-6.45,-2.6);
-  outline.bezierCurveTo(-5.8,1.4,-2.25,7.2,0,7.2);
-  const perimeter=outline.getPoints(32);
-  perimeter.pop();
-  const rings=[[.06,-.78],[.55,-.83],[.94,-.56],[1,-.24],[.99,.02],[.88,.28],[.62,.65],[.31,.93],[.035,1.05]];
-  const vertices=[],indices=[],count=perimeter.length;
-  for(const [scale,y] of rings)for(const p of perimeter)vertices.push(p.x*scale,y,p.y*scale);
-  for(let r=0;r<rings.length-1;r++)for(let i=0;i<count;i++){
-    const a=r*count+i,b=r*count+(i+1)%count,c=b+count,d=a+count;
-    indices.push(a,b,d,b,c,d);
+export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site,onBoard,onLand,onOrbit,notify}){
+ let auto=null,active=false,paused=false,landing=false,transfer=null,speed=0,vertical=0,yaw=0,camYaw=.4,camPitch=.24,distance=110,view=0,grounded=true;
+ const pos=new THREE.Vector3(),look=new THREE.Vector3(),asset=createKestrel(),craft=asset.group;craft.visible=false;scene.add(craft);
+ const ctl=makeDriveInput(window,{canvas,enabled:false,touch:false,flight:true}),held=new Set();
+ const touch=document.createElement('div');touch.className='flight-touch';touch.hidden=true;
+ for(const [code,label] of [['forward','前进'],['back','后退'],['left','左转'],['right','右转'],['up','上升'],['down','下降'],['brake','悬停']]){
+  const b=document.createElement('button');b.textContent=label;b.setAttribute('aria-label','飞行器'+label);b.onpointerdown=e=>{e.preventDefault();held.add(code);b.setPointerCapture(e.pointerId);};for(const type of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(type,()=>held.delete(code));touch.append(b);
+ }
+ document.body.append(touch);const reset=()=>{held.clear();ctl.reset();};addEventListener('blur',reset);
+ const isTouch=matchMedia('(pointer:coarse)').matches||navigator.maxTouchPoints>0;
+ function syncInput(){ctl.setEnabled(active&&!paused&&!transfer&&!landing);touch.hidden=!(isTouch&&active&&!paused&&!transfer&&!landing);}
+ function park(p){if(active||auto)return false;yaw=p.heading||0;craft.position.set(p.x,0,p.z);craft.rotation.set(0,yaw,0);const fit=asset.fitGround(heightAt,blocked,{snap:true});pos.copy(craft.position);grounded=true;craft.visible=true;asset.update(0);return fit.valid;}
+ // fromCargo: the crew arrived aboard ARES through the belly lift; takeoff still waits for door closure.
+ function start({fromCargo=false}={}){
+  if(active)return false;
+  if(auto){notify('NX07 正在无人飞行召唤中，请等它降落后再登船。');return false;}
+  if(craft.userData.assetState!=='ready'){notify('NX07 模型加载中，请稍候。');return false;}
+  if(!asset.doorClosed&&!fromCargo){notify('请先关闭腹舱，等升降平台收妥后登船。');return false;}
+  onBoard();active=true;landing=false;if(grounded)speed=vertical=0;transfer=null;camYaw=.4;syncInput();if(!fromCargo)notify('NX07 已就绪。E 垂直起飞，离地后起落架自动收回。');return true;
+ }
+ function land(){
+  if(!active||transfer)return false;
+  if(auto?.crewed&&!landing)cancelPilot();
+  const fit=solveSupport({x:pos.x,z:pos.z,heading:yaw},heightAt,blocked);
+  if(!fit.valid){notify(fit.reason);return false;}
+  landing=true;speed=0;asset.prepareLanding?.(heightAt,blocked);asset.deployGear();syncInput();notify('起落架展开，正在垂直降落；四足触地找平后解除舱门锁。');return true;
+ }
+ function orbit(target=null){if(!active||landing||transfer)return;if(auto?.crewed)cancelPilot();if(pos.y-heightAt(pos.x,pos.z)<600){notify('先上升到离地 600 m，再启动轨道转移。');return;}if(!asset.doorClosed||asset.gearProgress>.001){notify('舱门及起落架尚未收妥。');return;}transfer={elapsed:0,from:pos.y,target};reset();syncInput();}
+ // Unmanned summon flight: same interlocks, takeoff, cruise and vertical landing as crewed flight.
+ const CRUISE=70,wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+ // track() is polled every frame: {x,z,heading} = landing spot, {x,z,hover:true,radius} = follow and hold near the operator.
+ function fly(track,done){
+  if(active||auto||!grounded)return false;
+  if(!asset.doorClosed){notify('请先关闭腹舱，再召唤 NX07。');return false;}
+  auto={track,done,target:track(0),phase:'lift',wait:0};return !!auto.target;
+ }
+ // Crewed autopilot (flight plan): same takeoff, terrain following and landing as the summon flight.
+ // Any pilot input hands control back. Extra target: {climb:m, heading} holds position, climbs, turns, then calls done.
+ function pilot(track,done){
+  if(!active||auto||landing||transfer)return false;
+  if(grounded&&!asset.doorClosed){notify('请先关闭腹舱，等升降平台收妥。');return false;}
+  auto={track,done,target:track(0),phase:grounded?'lift':'cruise',wait:0,crewed:true};
+  if(!auto.target){auto=null;return false;}
+  return true;
+ }
+ function cancelPilot(message){if(!auto?.crewed)return false;auto=null;if(message)notify(message);return true;}
+ // Arriving from a flight-plan cruise: the ship enters the scene in flight with the gear stowed.
+ function spawnAirborne({x,z,heading=0,altitude=600,speed:initial=0}){
+  if(active||auto)return false;
+  yaw=heading;pos.set(x,heightAt(x,z)+altitude,z);grounded=false;landing=false;transfer=null;speed=initial;vertical=0;
+  asset.setFlightPose(0);craft.position.copy(pos);craft.rotation.set(0,yaw,0);craft.visible=true;asset.update(0);return true;
+ }
+ function autoStep(dt,rest){
+  const next=auto.track(dt);if(next)auto.target=next;
+  const t=auto.target,dx=t.x-pos.x,dz=t.z-pos.z,dist=Math.hypot(dx,dz);
+  if(auto.phase==='lift'){
+   if(grounded){if(asset.requestTakeoff()){grounded=false;pos.y=rest+.10;notify(auto.crewed?'按航线自动起飞 · 起落架收回中':'NX07 无人起飞 · 起落架收回中');}else if((auto.wait+=dt)>20){const crewed=auto.crewed;auto=null;notify(crewed?'起飞联锁未解除，自动航线取消。':'NX07 起飞联锁未解除，召唤取消。');}return;}
+   vertical=THREE.MathUtils.damp(vertical,30,1.5,dt);pos.y+=vertical*dt;
+   if(asset.gearProgress<.001&&pos.y-rest>(t.climb?Math.min(CRUISE,t.climb):t.skim?Math.min(CRUISE,t.agl*.6):CRUISE))auto.phase='cruise';return;
   }
-  const bottom=vertices.length/3;vertices.push(0,-.78,0);
-  const top=vertices.length/3;vertices.push(0,1.05,0);
-  for(let i=0;i<count;i++){
-    indices.push(bottom,(i+1)%count,i);
-    indices.push(top,(rings.length-1)*count+i,(rings.length-1)*count+(i+1)%count);
+  // Terrain skim (flight-plan departure): hold a heading at speed, following the ground at agl metres.
+  if(t.skim){
+   yaw+=THREE.MathUtils.clamp(wrap(t.heading-yaw),-.5*dt,.5*dt);
+   const aligned=Math.max(0,Math.cos(wrap(t.heading-yaw)));
+   speed=THREE.MathUtils.damp(speed,t.speed*aligned,.35,dt);
+   pos.x+=Math.sin(yaw)*speed*dt;pos.z+=Math.cos(yaw)*speed*dt;
+   followTerrain(dt,rest,t.agl);return;
   }
-  const hullGeo=new THREE.BufferGeometry();
-  hullGeo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
-  hullGeo.setIndex(indices);hullGeo.computeVertexNormals();
-  mesh(hullGeo,white).name='Swept lifting hull';
-  // Fine panel seams follow the actual loft surface rather than floating above it.
-  const seams=[];
-  const segment=(a,b)=>seams.push(...a,...b);
-  for(const r of [2,4,5,6]){
-    const [scale,y]=rings[r];
-    for(let i=0;i<count;i++){
-      const a=perimeter[i],b=perimeter[(i+1)%count];
-      segment([a.x*scale,y+.008,a.y*scale],[b.x*scale,y+.008,b.y*scale]);
-    }
+  if(t.climb){
+   const wantY=heightAt(pos.x,pos.z)+t.climb;
+   vertical=THREE.MathUtils.damp(vertical,THREE.MathUtils.clamp((wantY-pos.y)*1.2,-40,40),2.4,dt);pos.y+=vertical*dt;
+   speed=THREE.MathUtils.damp(speed,0,1.4,dt);pos.x+=Math.sin(yaw)*speed*dt;pos.z+=Math.cos(yaw)*speed*dt;
+   yaw+=THREE.MathUtils.clamp(wrap(t.heading-yaw),-.6*dt,.6*dt);
+   if(Math.abs(wantY-pos.y)<8&&Math.abs(wrap(t.heading-yaw))<.03){const done=auto.done;auto=null;vertical=0;done?.();}
+   return;
   }
-  for(let i=0;i<count;i+=8)for(let r=4;r<7;r++){
-    const p=perimeter[i],a=rings[r],b=rings[r+1];
-    segment([p.x*a[0],a[1]+.009,p.y*a[0]],[p.x*b[0],b[1]+.009,p.y*b[0]]);
+  if(t.approach&&dist>=300){
+   // Fast skim approach: brake along v = 0.8·√(2·a·d) and ease the skim height down toward the pad
+   // (25 m at 300 m, matching the final hover of landing rest + 15 m below).
+   const a=t.approach;yaw+=THREE.MathUtils.clamp(wrap(Math.atan2(dx,dz)-yaw),-.6*dt,.6*dt);
+   const aligned=Math.max(0,Math.cos(wrap(Math.atan2(dx,dz)-yaw)));
+   speed=THREE.MathUtils.damp(speed,Math.min(a.speed,.8*Math.sqrt(2*a.decel*dist))*aligned,3,dt);
+   pos.x+=Math.sin(yaw)*speed*dt;pos.z+=Math.cos(yaw)*speed*dt;auto.phase='approach';
+   followTerrain(dt,rest,THREE.MathUtils.clamp(dist*.08,25,a.agl));return;
   }
-  const seamGeo=new THREE.BufferGeometry();seamGeo.setAttribute('position',new THREE.Float32BufferAttribute(seams,3));
-  craft.add(new THREE.LineSegments(seamGeo,new THREE.LineBasicMaterial({color:0x78868c,transparent:true,opacity:.42})));
-  ellipsoid(panel,0,.82,-.4,1.35,.62,4.4);
-  // Each nacelle has a recessed panoramic belt between separate upper/lower shells.
-  for(const [x,y,z,sx,sz] of [[0,1.95,-2.35,1.65,3.9],[-3.95,1.35,-3.65,1.7,2.55],[3.95,1.35,-3.65,1.7,2.55]]){
-    ellipsoid(panel,x,y-.72,z,.68,.9,sz*.65);
-    ellipsoid(white,x,y-.18,z,sx,.63,sz);
-    ellipsoid(glass,x,y+.08,z,sx*1.005,.26,sz*1.005);
-    ellipsoid(white,x,y+.38,z,sx*.99,.55,sz*.98);
-    const roofLines=[];
-    for(const latitude of [.45,.85])for(let i=0;i<64;i++){
-      for(const angle of [i/64*Math.PI*2,(i+1)/64*Math.PI*2])roofLines.push(
-        x+Math.sin(angle)*sx*.991*Math.cos(latitude),y+.38+.551*Math.sin(latitude),z+Math.cos(angle)*sz*.981*Math.cos(latitude));
-    }
-    const roofGeo=new THREE.BufferGeometry();roofGeo.setAttribute('position',new THREE.Float32BufferAttribute(roofLines,3));
-    craft.add(new THREE.LineSegments(roofGeo,new THREE.LineBasicMaterial({color:0x879398,transparent:true,opacity:.45})));
-    for(let i=-2;i<=2;i++)mesh(new THREE.BoxGeometry(.48,.025,.055),dark,x,y+.932,z+i*.12);
-    // Repeated small blue windows are instanced to keep draw calls bounded.
-    const windows=new THREE.InstancedMesh(new THREE.BoxGeometry(.12,.12,.025),light,40);
-    const dummy=new THREE.Object3D();
-    for(let i=0;i<40;i++){
-      const angle=i/40*Math.PI*2;
-      dummy.position.set(x+Math.sin(angle)*sx*1.003,y+.1,z+Math.cos(angle)*sz*1.003);
-      dummy.rotation.set(0,Math.atan2(Math.sin(angle)/sx,Math.cos(angle)/sz),0);
-      dummy.updateMatrix();windows.setMatrixAt(i,dummy.matrix);
-    }
-    craft.add(windows);
-    const exhaust=mesh(new THREE.CylinderGeometry(.48,.62,.22,32),dark,x,y-.2,z-sz+.16);exhaust.rotation.x=Math.PI/2;
-    const core=mesh(new THREE.CylinderGeometry(.34,.34,.235,32),light,x,y-.2,z-sz+.12);core.rotation.x=Math.PI/2;
+  // Terrain following: look ahead along the track and keep clearance over ground and structures.
+  const ahead=Math.min(dist,160),ax=pos.x+Math.sin(yaw)*ahead,az=pos.z+Math.cos(yaw)*ahead;
+  const floor=Math.max(rest,landingHeight(ax,az),ceilingAt(ax,az)+NX07.rest,ceilingAt(pos.x,pos.z)+NX07.rest);
+  const wantY=floor+(t.hover?40:t.approach?15:auto.phase==='cruise'&&dist>=200?CRUISE:Math.max(15,Math.min(CRUISE,dist*.5)));
+  vertical=THREE.MathUtils.damp(vertical,THREE.MathUtils.clamp((wantY-pos.y)*1.2,-40,40),2.4,dt);
+  pos.y=Math.max(rest+3,pos.y+vertical*dt);
+  if(t.hover){
+   // Follow the walking operator; hold station once within the operating radius.
+   const away=dist-(t.radius||0);
+   if(away>2)yaw+=THREE.MathUtils.clamp(wrap(Math.atan2(dx,dz)-yaw),-.6*dt,.6*dt);
+   const aligned=Math.cos(wrap(Math.atan2(dx,dz)-yaw));
+   speed=THREE.MathUtils.damp(speed,away>2?Math.min(90,away*.5)*Math.max(0,aligned):0,1.4,dt);
+   pos.x+=Math.sin(yaw)*speed*dt;pos.z+=Math.cos(yaw)*speed*dt;auto.phase=dist<200?'approach':'cruise';return;
   }
-  // Ventral blue array: inset disk, concentric rings and eight radial separators.
-  mesh(new THREE.CylinderGeometry(1.5,1.5,.14,64),dark,0,-.88,3.75);
-  mesh(new THREE.CylinderGeometry(1.25,1.25,.16,64),light,0,-.98,3.75);
-  for(const radius of [.52,1.02,1.42]){
-    const ring=mesh(new THREE.TorusGeometry(radius,.065,8,64),dark,0,-1.075,3.75);ring.rotation.x=Math.PI/2;
+  const face=dist>3?Math.atan2(dx,dz):t.heading;
+  yaw+=THREE.MathUtils.clamp(wrap(face-yaw),-.6*dt,.6*dt);
+  const aligned=Math.cos(wrap(Math.atan2(dx,dz)-yaw));
+  speed=THREE.MathUtils.damp(speed,dist>3?(t.approach?Math.min(.8*Math.sqrt(2*t.approach.decel*dist),dist*.4):Math.min(90,dist*.4))*Math.max(0,aligned):0,t.approach?3:1.4,dt);
+  if(dist>3){pos.x+=Math.sin(yaw)*speed*dt;pos.z+=Math.cos(yaw)*speed*dt;}
+  else{const k=Math.min(1,dt*(t.approach?2.5:.8));pos.x+=dx*k;pos.z+=dz*k;speed=0;}
+  auto.phase=dist<200?'approach':'cruise';
+  if(dist<.3&&Math.abs(wrap(t.heading-yaw))<.01&&Math.abs(pos.y-wantY)<3){
+   pos.x=t.x;pos.z=t.z;yaw=t.heading;
+   const fit=solveSupport({x:pos.x,z:pos.z,heading:yaw},heightAt,blocked);
+   if(!fit.valid){auto.target={x:pos.x,z:pos.z,hover:true,radius:0};notify('NX07 着陆点失效：'+fit.reason+'，继续悬停等待。');return;}
+   landing=true;speed=vertical=0;asset.prepareLanding?.(heightAt,blocked);asset.deployGear();syncInput();notify(auto.crewed?'到达着陆点上空，展开起落架垂直降落。':'NX07 到达上空，展开起落架垂直降落。');
   }
-  for(let i=0;i<8;i++){
-    const angle=i*Math.PI/4;
-    const spoke=mesh(new THREE.BoxGeometry(.085,.06,1.0),dark,Math.sin(angle)*.82,-1.075,3.75+Math.cos(angle)*.82);spoke.rotation.y=angle;
+ }
+ // Hold agl over the highest ground (and structures) ahead: a climb gradient of 0.3 starts the pull-up early.
+ function followTerrain(dt,rest,agl){
+  // Samples bunch up near the nose (d ∝ i^1.6) where a missed bump matters most.
+  const look=Math.max(300,speed*5),grade=.3,ground=heightAt(pos.x,pos.z);let want=ground+agl;
+  for(let i=1;i<=16;i++){
+   const d=look*Math.pow(i/16,1.6),x=pos.x+Math.sin(yaw)*d,z=pos.z+Math.cos(yaw)*d;
+   want=Math.max(want,heightAt(x,z)+agl-d*grade,ceilingAt(x,z)+NX07.rest+agl*.5-d*grade);
   }
-  for(const x of [-2.5,2.5]){
-    for(let i=0;i<6;i++)mesh(new THREE.BoxGeometry(.42,.035,.08),dark,x,.43,-1.4+i*.18);
-    mesh(new THREE.BoxGeometry(.48,.055,.8),panel,x,.24,2.4);
+  vertical=THREE.MathUtils.damp(vertical,THREE.MathUtils.clamp((want-pos.y)*2,-50,80),4,dt);
+  // Never sag below 45 % of the skim height, however sharp the rise.
+  pos.y=Math.max(rest+3,ground+agl*.45,pos.y+vertical*dt);
+ }
+ let cachedGround=null;
+ function landingHeight(x,z){if(cachedGround&&Math.hypot(x-cachedGround.x,z-cachedGround.z)<.5&&Math.abs(yaw-cachedGround.yaw)<.01)return cachedGround.y;const y=asset.landingHeight(heightAt,x,z,yaw);cachedGround={x,z,yaw,y};return y;}
+ function finishTouchdown(){
+  craft.position.copy(pos);craft.rotation.set(0,yaw,0);const fit=asset.fitGround(heightAt,blocked);pos.copy(craft.position);grounded=true;speed=vertical=0;
+  if(asset.supportReady){landing=false;reset();syncInput();const crewed=!auto||auto.crewed;if(auto){const done=auto.done;auto=null;done?.();}if(crewed){onLand({x:pos.x,z:pos.z,heading:yaw});notify('四足支撑已锁定，船体找平完成。可离船操作腹舱。');}}
+  return fit;
+ }
+ function update(dt){
+  if(paused||document.hidden)return;dt=Math.min(.05,Math.max(0,dt));asset.update(dt);if(!active&&!auto)return;
+  const rest=landingHeight(pos.x,pos.z);
+  if(auto&&!landing&&!auto.crewed){autoStep(dt,rest);craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0);return;}
+  if(auto?.crewed&&!landing&&!transfer){
+   const c=ctl.update(dt);if(c.camCycle)view=1-view;
+   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55,750);
+   // The input layer reports brake=1 while the window is unfocused, so Space only counts with focus.
+   const manual=Math.abs(c.throttle)>.05||Math.abs(c.steer)>.05||c.up||c.down||(c.brake&&document.hasFocus())||held.size>0;
+   if(manual)cancelPilot('已转为手动飞行，自动航线取消。');else autoStep(dt,rest);
   }
-  // Landing datum stays at -2.2, compatible with the existing clearance controller.
-  for(const x of [-2.6,2.6])for(const z of [-2.4,2.5]){
-    mesh(new THREE.CylinderGeometry(.11,.15,1.25,10),dark,x,-1.43,z);
-    ellipsoid(panel,x,-2.08,z,.48,.12,.72);
+  else if(transfer){transfer.elapsed+=dt;const t=Math.min(1,transfer.elapsed/7);pos.y=THREE.MathUtils.lerp(transfer.from,160000,t*t*(3-2*t));if(t===1){const target=transfer.target;transfer=null;paused=true;onOrbit({...localToGeo(pos,site),target});return;}}
+  else if(landing){
+   vertical=-Math.min(110,Math.max(1.2,(pos.y-rest)*.8));pos.y=Math.max(rest,pos.y+vertical*dt);
+   if(pos.y<=rest+.01)finishTouchdown();
+  }else{
+   const c=ctl.update(dt);if(c.camCycle)view=1-view;
+   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55,750);
+   const up=(c.up&&!c.brake)||held.has('up'),down=c.down||held.has('down'),brake=c.brake||held.has('brake'),boost=c.boost?3:1;
+   if(grounded){
+    speed=vertical=0;
+    if(up&&!brake){if(asset.requestTakeoff()){grounded=false;pos.y=rest+.10;notify('垂直起飞 · 起落架自动收回');}else notify('请等待平台收妥、舱门关闭、起落架完成找平。');}
+   }
+   if(!grounded){
+    const throttle=held.has('forward')?1:held.has('back')?-1:c.throttle,steering=held.has('right')?1:held.has('left')?-1:c.steer;
+    // No lateral travel until the splayed legs clear the ground and have retracted.
+    const cruise=asset.gearProgress<.001&&pos.y-rest>3;
+    if(cruise)yaw-=steering*dt*.6;
+    speed=THREE.MathUtils.damp(speed,!cruise||brake?0:throttle*90*boost,brake?4:1.4,dt);
+    vertical=THREE.MathUtils.damp(vertical,brake?0:((up?1:0)-(down?1:0))*80*boost,2.4,dt);
+    if(down&&pos.y-rest<24){const fit=solveSupport({x:pos.x,z:pos.z,heading:yaw},heightAt,blocked);if(fit.valid){landing=true;asset.prepareLanding?.(heightAt,blocked);asset.deployGear();speed=0;syncInput();}else {vertical=Math.max(0,vertical);notify(fit.reason);}}
+    const nx=pos.x+Math.sin(yaw)*speed*dt,nz=pos.z+Math.cos(yaw)*speed*dt,surface=Math.max(landingHeight(nx,nz),ceilingAt(nx,nz)+NX07.rest);
+    if(Math.abs(nx)<180000&&Math.abs(nz)<180000&&pos.y+vertical*dt>=surface){pos.x=nx;pos.z=nz;}else speed=0;
+    pos.y=Math.max(rest+.10,Math.min(180000,pos.y+vertical*dt));
+   }
   }
-  const touch=document.createElement('div');touch.className='flight-touch';touch.hidden=true;
-  const held=new Set();
-  for(const [code,label] of [['forward','前进'],['back','后退'],['left','左转'],['right','右转'],['up','上升'],['down','下降'],['brake','悬停']]){
-    const b=document.createElement('button');b.textContent=label;b.setAttribute('aria-label','飞行器'+label);
-    b.onpointerdown=e=>{e.preventDefault();held.add(code);try{b.setPointerCapture(e.pointerId);}catch{}};
-    for(const type of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(type,()=>held.delete(code));touch.append(b);
-  }
-  document.body.append(touch);
-  const reset=()=>{held.clear();ctl.reset();};
-  addEventListener('blur',reset);
-  const isTouch=matchMedia('(pointer:coarse)').matches||navigator.maxTouchPoints>0;
-  function syncInput(){ctl.setEnabled(active&&!paused&&!transfer&&!landing);touch.hidden=!(isTouch&&active&&!paused&&!transfer&&!landing);}
-  function park(p){
-    if(active)return;
-    pos.set(p.x,heightAt(p.x,p.z)+2.3,p.z);yaw=p.heading||0;
-    craft.position.copy(pos);craft.rotation.set(0,yaw,0);craft.visible=true;
-  }
-  function start(){
-    if(active)return;
-    pos.y=heightAt(pos.x,pos.z)+2.3;
-    onBoard(); active=true;landing=false;transfer=null;speed=0;vertical=0;camYaw=0;craft.visible=true;syncInput();
-    craft.position.copy(pos);craft.rotation.set(0,yaw,0);notify('游隼已就绪。E 上升、Q 下降，W/S 推进，A/D 转向；空格悬停。');
-  }
-  function land(){
-    if(!active||transfer)return;
-    if(blocked(pos.x,pos.z)){notify('下方有建筑或连廊，请先飞到开阔地再降落。');return;}
-    landing=true;syncInput();notify('正在垂直降落，着陆后可从舱门步行离船。');
-  }
-  function orbit(target=null){
-    if(!active||landing||transfer)return;
-    const agl=pos.y-heightAt(pos.x,pos.z);
-    if(agl<600){notify('先上升到离地 600 m，再启动轨道转移。');return;}
-    transfer={elapsed:0,from:pos.y,target};reset();syncInput();notify('正在爬升，准备切入火星轨道。');
-  }
-  function update(dt){
-    if(!active||paused||document.hidden)return;
-    dt=Math.min(dt,.05);const ground=heightAt(pos.x,pos.z);
-    if(transfer){
-      transfer.elapsed+=dt;const t=Math.min(1,transfer.elapsed/7);
-      pos.y=transfer.from+(160000-transfer.from)*(t*t*(3-2*t));speed*=Math.exp(-dt*2);
-      if(t>=1){const geo=localToGeo(pos,site);const target=transfer.target;transfer=null;paused=true;onOrbit({ ...geo, target });return;}
-    }else if(landing){
-      speed*=Math.exp(-dt*6);vertical=-Math.min(120,Math.max(1.8,(pos.y-ground-2.3)*.9));
-      pos.y=Math.max(ground+2.3,pos.y+vertical*dt);
-      if(pos.y<=ground+2.31){landing=false;vertical=0;speed=0;reset();syncInput();onLand({x:pos.x,z:pos.z,heading:yaw});notify('已安全着陆。点击离船步行，或继续飞行。');}
-    }else{
-      const c=ctl.update(dt),boost=c.boost?3:1;if(c.camCycle)view=1-view;
-      const throttle=held.has('forward')?1:held.has('back')?-1:c.throttle;
-      const steering=held.has('right')?1:held.has('left')?-1:c.steer;
-      yaw-=steering*dt*.9;camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);
-      distance=THREE.MathUtils.clamp(distance+c.zoom*2.5,12,100);
-      const brake=c.brake||held.has('brake');
-      speed=THREE.MathUtils.damp(speed,brake?0:throttle*90*boost,brake?4:1.4,dt);
-      const up=(c.up&&!c.brake)||held.has('up'),down=c.down||held.has('down');
-      vertical=THREE.MathUtils.damp(vertical,brake?0:((up?1:0)-(down?1:0))*80*boost,2.4,dt);
-      const nx=pos.x+Math.sin(yaw)*speed*dt,nz=pos.z+Math.cos(yaw)*speed*dt;
-      // Swept clearance avoids passing through a dome between frames.
-      const surface=Math.max(heightAt(nx,nz)+2.3,ceilingAt(nx,nz)+2.3);
-      if(Math.abs(nx)<180000&&Math.abs(nz)<180000&&pos.y+vertical*dt>=surface){pos.x=nx;pos.z=nz;}
-      else {speed=0;}
-      const currentSurface=Math.max(heightAt(pos.x,pos.z),ceilingAt(pos.x,pos.z))+2.3;
-      pos.y=Math.max(currentSurface,Math.min(180000,pos.y+vertical*dt));
-    }
-    craft.position.copy(pos);craft.rotation.set(THREE.MathUtils.clamp(-speed/500,-.13,.13),yaw,0);
-    const az=yaw+camYaw;
-    camera.position.set(pos.x-Math.sin(az)*distance*Math.cos(camPitch),pos.y+Math.sin(camPitch)*distance+5,pos.z-Math.cos(az)*distance*Math.cos(camPitch));
-    camera.position.y=Math.max(camera.position.y,heightAt(camera.position.x,camera.position.z)+2);
-    look.copy(pos).y+=1;
-    if(view){camera.position.set(pos.x+Math.sin(yaw)*7.6,pos.y+1.2,pos.z+Math.cos(yaw)*7.6);look.set(camera.position.x+Math.sin(az)*100,camera.position.y-Math.sin(camPitch-.24)*80,camera.position.z+Math.cos(az)*100);}
-    camera.lookAt(look);camera.fov=view?68:60;camera.updateProjectionMatrix();
-  }
-  return {start,land,orbit,update,park,cycle(){view=1-view;},get view(){return view?"前向视野":"跟随视野";},
-    leave(){if(!active||landing||transfer||pos.y-heightAt(pos.x,pos.z)>2.5||Math.abs(speed)>.5)return false;active=false;reset();syncInput();return true;},get active(){return active;},get position(){return pos;},get heading(){return yaw;},get speed(){return speed;},
-    get altitude(){return active?Math.max(0,pos.y-heightAt(pos.x,pos.z)):0;},get transferring(){return!!transfer;},
-    setPaused(value){paused=value;reset();syncInput();},get landing(){return landing;}};
+  craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0);
+  if(!active)return;
+  const az=yaw+camYaw;
+  camera.position.set(pos.x-Math.sin(az)*distance*Math.cos(camPitch),pos.y+Math.sin(camPitch)*distance+10,pos.z-Math.cos(az)*distance*Math.cos(camPitch));camera.position.y=Math.max(camera.position.y,heightAt(camera.position.x,camera.position.z)+2);look.copy(pos).y+=3;
+  if(view){camera.position.set(pos.x+Math.sin(yaw)*36,pos.y+12,pos.z+Math.cos(yaw)*36);look.set(camera.position.x+Math.sin(az)*100,camera.position.y-Math.sin(camPitch-.24)*80,camera.position.z+Math.cos(az)*100);}
+  camera.lookAt(look);camera.fov=view?68:60;camera.updateProjectionMatrix();
+ }
+ return {asset,start,park,fly,pilot,cancelPilot,spawnAirborne,get summoning(){return !!auto&&!auto.crewed;},get piloting(){return !!auto?.crewed;},land,orbit,update,cycle(){view=1-view;},hold(id,value){if(!value)held.delete(id);else if(active&&!paused&&!landing&&!transfer&&['up','down','brake'].includes(id))held.add(id);},hover(){if(active&&!paused&&!landing&&!transfer){cancelPilot('已转为手动飞行，自动航线取消。');reset();speed=vertical=0;notify('主动悬停：已制动水平与垂直速度。');}},get verticalSpeed(){return vertical;},get grounded(){return grounded&&asset.supportReady;},get view(){return view?'前向视野':'跟随视野';},get active(){return active;},get position(){return pos;},get heading(){return yaw;},get speed(){return speed;},get altitude(){return grounded?0:Math.max(0,pos.y-heightAt(pos.x,pos.z));},get transferring(){return !!transfer;},get landing(){return landing;},setPaused(v){paused=v;reset();syncInput();},leave(){if(!active||landing||transfer||!grounded||!asset.supportReady||Math.abs(speed)>.5)return false;active=false;reset();syncInput();return true;}};
 }

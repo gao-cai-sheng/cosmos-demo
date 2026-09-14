@@ -101,6 +101,13 @@
   <div class="lab">大气浑浊度 <b id="hazeLab">—</b></div>
   <input type="range" id="haze" min="0" max="60" step="1" value="24" />
 
+  <div class="lab">中尺度地貌 <b id="reliefLab">1.5×</b></div>
+  <div class="col" id="reliefModes" style="grid-template-columns:repeat(3,1fr);display:grid">
+    <button data-relief="1">1.0</button>
+    <button data-relief="1.5" class="on">1.5</button>
+    <button data-relief="2">2.0</button>
+  </div>
+
   <div class="lab">尘埃</div>
   <div class="col" style="grid-template-columns:1fr 1fr; display:grid">
     <button id="dOn" class="on">开</button>
@@ -128,7 +135,7 @@
   <div class="dr"><span>牵引力控制</span><b id="dTc">—</b></div>
   <div class="dr"><span>机位</span><b id="dCam">跟车</b></div>
   <div class="dr"><span>视距 / 焦段</span><b id="dLen">—</b></div>
-  <div class="dk">W/S 油门 · A/D 转向 · 空格 刹车 · T 牵引力控制 · Esc 回到步行<br>
+  <div class="dk">W/S 油门 · A/D 转向 · 空格 刹车 · Y 牵引力控制 · Esc 暂停<br>
     拖动 = 转视角 · 滚轮 = 拉近拉远 · C = 换机位（跟车 / 环绕 / 桅杆 / 自由）<br>
     自由机位：WASD 飞 · E/空格 升 · Q 降 · Shift 加速</div>
 </div>
@@ -158,12 +165,15 @@
         大形状归数据，14.8 km 以下的全部由分形补 —— 并且要按网格密度
         逐倍频截断，否则远处会闪成一片噪点。
    ============================================================ */
+import {createLandingSequence} from '../src/journey/landing-sequence.js';
 import * as THREE from 'three';
 import { getJourney, startJourney, updateJourney, sceneURL, isJourneyMode, getSettings } from '../src/journey/state.js';
 import { mountJourneyUI } from '../src/journey/ui.js';
 import { mountMobility } from '../src/journey/mobility.js';
+import { mediumRelief, normalizeReliefLevel } from '../src/journey/mars-relief.js';
 
 const qs0 = new URLSearchParams(location.search);
+let RELIEF = normalizeReliefLevel(qs0.get('relief'));
 const SURVIVAL = qs0.get('survival') === '1' && qs0.get('ui') !== '0';
 if(SURVIVAL) document.body.classList.add('survival-mode');
 const JOURNEY = !SURVIVAL && isJourneyMode() && qs0.get('ui') !== '0' && qs0.get('explore') !== '1';
@@ -355,7 +365,10 @@ function terrainY(x, z, cell){
   const [lat, lon] = llAt(x, z);
   const base = molaSharp(lat, lon) - H0;
   const curve = (x*x + z*z)/(2*R_M);               // 球面沉降
-  return base - curve + detail(x, z, molaSlope(lat, lon), cell === undefined ? 0.4 : cell);
+  const slope = molaSlope(lat, lon);
+  return base - curve
+    + detail(x, z, slope, cell === undefined ? 0.4 : cell)
+    + mediumRelief({x,z,slope,strength:RELIEF});
 }
 
 /* ============================================================
@@ -793,6 +806,7 @@ function telemetry(){
     row('地形顶点', (STATS.verts/1000).toFixed(0)+' k') +
     row('三角形', (STATS.tris/1000).toFixed(0)+' k') +
     row('岩块实例', STATS.rocks) +
+    row('中尺度地貌', RELIEF.toFixed(1)+'×') +
     row('太阳', SUN.az+'° / '+SUN.el+'°') +
     '<div class="row"><span>帧率</span><b style="color:'+
       (FPS<28?'var(--bad)':FPS<45?'var(--warn)':'var(--good)')+'">'+FPS.toFixed(0)+' fps</b></div>';
@@ -849,11 +863,27 @@ addEventListener('keydown', e=>{
 });
 
 const $ = id => document.getElementById(id);
+function syncReliefUI(){
+  $('reliefLab').textContent=RELIEF.toFixed(1)+'×';
+  $('reliefModes').querySelectorAll('[data-relief]').forEach(button=>button.classList.toggle('on',Number(button.dataset.relief)===RELIEF));
+}
+function setRelief(level){
+  const next=normalizeReliefLevel(level);
+  if(DRIVING||mobility?.active||mobility?.walking||document.body.classList.contains('is-arriving')){
+    journeyUI?.toast('请在未驾驶、未飞行且未步行时切换地貌强度。');return;
+  }
+  if(next===RELIEF){syncReliefUI();return;}
+  RELIEF=next;syncReliefUI();
+  const url=new URL(location.href);url.searchParams.set('relief',String(RELIEF));history.replaceState(null,'',url);
+  buildWorld();applyCamera();telemetry();
+}
 for(const k in VIEWS) $(VIEWS[k].btn).onclick = () => setView(k);
 $('fov').oninput  = () => { CAM.fov = +$('fov').value; $('fovLab').textContent = CAM.fov+'°'; applyCamera(); };
 $('az').oninput   = () => { SUN.az = +$('az').value;  $('azLab').textContent = SUN.az+'°'; applySun(); };
 $('el').oninput   = () => { SUN.el = +$('el').value;  $('elLab').textContent = SUN.el+'°'; applySun(); };
 $('haze').oninput = () => { SUN.haze = +$('haze').value; $('hazeLab').textContent = SUN.haze+'%'; applySun(); };
+$('reliefModes').querySelectorAll('[data-relief]').forEach(button=>button.onclick=()=>setRelief(button.dataset.relief));
+syncReliefUI();
 $('dOn').onclick  = () => { if(dust) dust.visible=true;  $('dOn').classList.add('on'); $('dOff').classList.remove('on'); };
 $('dOff').onclick = () => { if(dust) dust.visible=false; $('dOff').classList.add('on'); $('dOn').classList.remove('on'); };
 
@@ -879,64 +909,52 @@ let CAM_MODE = null;
 let camWalk = null;
 
 let driveLoading = false, driveLoadPromise = null;
-async function enterDrive(){
-  if(SURVIVAL || LOCKED || DRIVING || (JOURNEY && (ARRIVE.on || missionPaused))) return;
-  if(driveLoading) return driveLoadPromise;
-  driveLoading = true;
-  errBox.style.display = 'none';
-  renderMissionHUD();
-  driveLoadPromise = (async () => {
-    try {
-      if(!ROVER){
-        $('busy').textContent = '正在展开 MU-7…';
-        $('busy').style.display = 'flex';
-        await new Promise(r => requestAnimationFrame(r));
-        const [{ Rover, DRIVE }, { makeTerrainAdapter }, { makeDriveInput }, 相机] =
-          await Promise.all([
-            import('./rover/载具.js'), import('./rover/地形适配.js'),
-            import('./rover/输入.js'), import('./rover/相机机架.js')
-          ]);
-        const { makeCameraRig } = 相机; CAM_MODE = 相机.CAM_MODE;
-        DRIVE.fence = 0;
-        terrainAdapter = makeTerrainAdapter((x,z,c) => terrainY(x, z, c === undefined ? 0.05 : c));
-        ROVER = new Rover(terrainAdapter, scene);
-        const saved = JOURNEY ? getJourney()?.rover : null;
-        const restorable = saved && [saved.x,saved.z,saved.heading,saved.odo].every(Number.isFinite);
-        ROVER.placeAt(restorable ? saved.x : 6, restorable ? saved.z : -14,
-                      restorable ? saved.heading : Math.PI);
-        if(restorable) ROVER.odo = Math.max(0, saved.odo);
-        ROVER.panelDeploy = 1;
-        ROVER.__drive = DRIVE;
-        window.__ROVER = ROVER; window.__TERR = terrainAdapter;
-        drvIn = makeDriveInput(window, { canvas, enabled:false });
-        rig = makeCameraRig(camera, terrainAdapter, { fov:52, fovGain:13, dist:8.6, distMax:60 });
-        window.__RIG = rig; window.__DRVIN = drvIn;
-      }
-      camWalk = { yaw:CAM.yaw, pitch:CAM.pitch, fov:CAM.fov };
-      DRIVING = true;
-      drag = false;
-      drvIn.setEnabled(!missionPaused && !document.hidden);
-      rig.first = true;
-      // 车体的前方是 +Z；朝北时 yaw=PI，镜头必须从南侧看向车头。
-      rig.yaw = Math.atan2(ROVER.forward.x, ROVER.forward.z) + Math.PI;
-      rig.update(0, ROVER, {});
-      $('drive').classList.add('on');
-      $('driveBtn').textContent = '结束遥控 · 返回操作员';
-      $('land').style.opacity = '0.35';
-      if(JOURNEY) journeyUI.toast('W/S 前进与倒车 · A/D 转向 · 空格刹车 · E 扫描');
-    } catch(error){
-      drvIn?.dispose();
-      if(ROVER) scene.remove(ROVER.root);
-      ROVER = null; rig = null; drvIn = null; DRIVING = false;
-      journeyUI?.toast('巡视车加载失败，请重新尝试进入驾驶。');
-      fail('巡视车加载失败', error.message);
-    } finally {
-      driveLoading = false;
-      $('busy').style.display = 'none';
-      renderMissionHUD();
+async function ensureRoverModel({x,z,heading,panelDeploy=1}={}){
+  if(ROVER)return ROVER;
+  if(driveLoading)return driveLoadPromise;
+  driveLoading=true;errBox.style.display='none';renderMissionHUD();
+  driveLoadPromise=(async()=>{
+    try{
+      $('busy').textContent='正在准备 MU-7…';$('busy').style.display='flex';
+      await new Promise(r=>requestAnimationFrame(r));
+      const [{Rover,DRIVE},{makeTerrainAdapter},{makeDriveInput},相机]=await Promise.all([
+        import('./rover/载具.js'),import('./rover/地形适配.js'),import('./rover/输入.js'),import('./rover/相机机架.js')
+      ]);
+      const {makeCameraRig}=相机;CAM_MODE=相机.CAM_MODE;DRIVE.fence=0;
+      terrainAdapter=makeTerrainAdapter((tx,tz,c)=>terrainY(tx,tz,c===undefined ? 0.05 : c));
+      ROVER=new Rover(terrainAdapter,scene);
+      const saved=JOURNEY?getJourney()?.rover:null;
+      const requested=[x,z,heading].every(Number.isFinite);
+      const restorable=!requested&&saved&&[saved.x,saved.z,saved.heading,saved.odo].every(Number.isFinite);
+      ROVER.placeAt(requested?x:restorable?saved.x:6,requested?z:restorable?saved.z:-14,requested?heading:restorable?saved.heading:Math.PI);
+      if(restorable)ROVER.odo=Math.max(0,saved.odo);
+      ROVER.panelDeploy=panelDeploy;ROVER.panelTarget=panelDeploy;ROVER.updateVisuals(0,停车);
+      ROVER.__drive=DRIVE;window.__ROVER=ROVER;window.__TERR=terrainAdapter;
+      drvIn=makeDriveInput(window,{canvas,enabled:false});
+      rig=makeCameraRig(camera,terrainAdapter,{fov:52,fovGain:13,dist:8.6,distMin:1.6,distMax:240});
+      window.__RIG=rig;window.__DRVIN=drvIn;
+      return ROVER;
+    }catch(error){
+      drvIn?.dispose();if(ROVER)scene.remove(ROVER.root);
+      ROVER=null;rig=null;drvIn=null;DRIVING=false;
+      journeyUI?.toast('巡视车加载失败，请重新尝试进入驾驶。');fail('巡视车加载失败',error.message);
+      return null;
+    }finally{
+      driveLoading=false;driveLoadPromise=null;$('busy').style.display='none';renderMissionHUD();
     }
   })();
   return driveLoadPromise;
+}
+async function enterDrive(){
+  if(SURVIVAL||LOCKED||DRIVING||(ARRIVE.on||missionPaused))return;
+  const model=await ensureRoverModel();if(!model)return;
+  camWalk={yaw:CAM.yaw,pitch:CAM.pitch,fov:CAM.fov};
+  DRIVING=true;drag=false;drvIn.setEnabled(!missionPaused&&!document.hidden);
+  rig.setMode(CAM_MODE.CHASE,ROVER);rig.first=true;
+  // 每次重新连接遥控都回到跟车机位，避免上次摄影模式让 WASD 继续飞相机。
+  rig.yaw=Math.atan2(ROVER.forward.x,ROVER.forward.z)+Math.PI;rig.update(0,ROVER,{});
+  $('drive').classList.add('on');$('driveBtn').textContent='结束遥控 · 返回操作员';$('land').style.opacity='0.35';
+  if(JOURNEY)journeyUI.toast('W/S 前进与倒车 · A/D 转向 · 空格刹车 · E 扫描');
 }
 function exitDrive(){
   if(!DRIVING) return;
@@ -963,7 +981,7 @@ function stepRover(dt){
   if(!DRIVING || !ROVER || missionPaused || document.hidden) return;
   const rawControl = drvIn.update(dt);
   const ctl = mobility?.driveControl(rawControl,dt) || rawControl;
-  if(scanning && Math.abs(ctl.throttle) > 0.12) cancelScan('车辆移动，扫描已取消。停车后按 E 重新扫描。');
+  if(scanning && Math.abs(ctl.throttle) > 0.12) cancelScan('车辆移动，扫描已取消。停车后按住 E 重新扫描。');
   if(ctl.camCycle) rig.cycle(ROVER);
   const 自由 = rig.mode === CAM_MODE.PHOTO;
   const drive = 自由 || scanning ? 停车 : ctl;
@@ -1098,7 +1116,7 @@ function renderMissionHUD(){
   const point = currentSurvey(), distance = point ? distanceTo(point) : 0;
   const scanReady = canScan();
   let title, body;
-  if(ARRIVE.on){ title = '正在接近着陆区'; body = '巡视车与勘测信标正在就位，触地后开始地面任务。'; }
+  if(ARRIVE.on){ title = '正在接近着陆区'; body = '先遣舱相机与勘测信标正在就位，触地后开始地面任务。'; }
   else if(!point){
     title = '勘测完成，部署穹顶基地';
     body = '3 份勘测数据已归档。建造队将在原着陆区展开基地，可从当前位置下达部署指令。';
@@ -1107,10 +1125,13 @@ function renderMissionHUD(){
     body = '保持停车 2 秒。踩下油门会中止扫描；暂停时保留当前进度。';
   } else {
     title = point.number + ' · ' + point.name;
-    body = !DRIVING ? '连接 MU-7 遥控，沿发光信标逐站勘测。方向指引与路线图会带你找到目标。' :
-      distance > SCAN_RADIUS ? '沿指引驶向信标。进入 18 m 范围后，按住空格刹车，按 E 扫描。' :
-      !parked() ? '已进入勘测范围。按住空格刹车，停稳后按 E 扫描。' :
-      '已进入勘测范围。按 E 或点击「扫描」，保持停车 2 秒。';
+    const stowed = mobility?.roverStowed;
+    body = stowed === 'ship' ? 'MU-7 随 ARES 装在 NX07 腹舱。走到舰尾点「打开腹舱并卸载 ARES」，再从 ARES 卸下 MU-7。' :
+      stowed === 'carrier' ? 'MU-7 在 ARES 货舱内。靠近 ARES 点「卸载 MU-7」，卸到车尾后再连接遥控。' :
+      !DRIVING ? '连接 MU-7 遥控，沿发光信标逐站勘测。方向指引与路线图会带你找到目标。' :
+      distance > SCAN_RADIUS ? '沿指引驶向信标。进入 18 m 范围后，按住空格刹车，按住 E 扫描。' :
+      !parked() ? '已进入勘测范围。按住空格刹车，停稳后按住 E 扫描。' :
+      '已进入勘测范围。按住 E 或点击「扫描」，保持停车 2 秒。';
   }
   journeyUI.setObjective({ kicker:'地面勘测 · ' + completed.size + ' / 3 已归档', title, body,
     progress:(completed.size + (scanning ? scanning.elapsed / SCAN_SECONDS : 0)) / SURVEY.length });
@@ -1193,7 +1214,7 @@ function stepSurvey(dt, now){
   if(scanning && dt > 0){
     const moved = Math.hypot(ROVER.pos.x-scanning.x,ROVER.pos.z-scanning.z) > 0.6;
     if(!DRIVING || !parked() || moved || distanceTo(scanning.point) > SCAN_RADIUS){
-      cancelScan('车辆移动，扫描已取消。停车后按 E 重新扫描。');
+      cancelScan('车辆移动，扫描已取消。停车后按住 E 重新扫描。');
     } else {
       scanning.elapsed += dt;
       if(scanning.elapsed >= SCAN_SECONDS){
@@ -1217,8 +1238,8 @@ function finishLanding(){
   if(savedJourney.landed && savedJourney.rover){ queueMicrotask(()=>mobility.boardRover()); return; }
   journeyUI.showBrief({
     title:'触地。现在，给第一座基地选址。',
-    body:'遥控无人 MU-7 沿三座信标完成地基、供能与通信勘测。W/S 前进倒车，A/D 转向；驶入信标 18 m 内，按空格停稳，再按 E 扫描。每次扫描约 2 秒，数据会自动保存。完成后，将在原着陆区部署基地。',
-    button:'连接遥控 · 开始勘测', onStart:() => mobility.boardRover(),
+    body:'MU-7 随 ARES 装在 NX07 腹舱里。离船后打开腹舱卸下 ARES，再从 ARES 卸下 MU-7，遥控它沿三座信标完成地基、供能与通信勘测。驶入信标 18 m 内，按空格停稳，再按住 E 扫描，约 2 秒，数据自动保存。完成后在原着陆区部署基地。',
+    button:'开始探索', onStart:() => mobility.walk(),
   });
 }
 function initJourney(){
@@ -1242,7 +1263,7 @@ function initJourney(){
 addEventListener('keydown', e => {
   if(!JOURNEY || e.repeat || e.ctrlKey || e.metaKey || e.altKey ||
      e.target.closest?.('input,textarea,select,[contenteditable=true]')) return;
-  if(e.code === 'KeyE' && !mobility?.active && !mobility?.walking && (!rig || rig.mode !== CAM_MODE.PHOTO)){
+  if(!mobility && e.code === 'KeyE' && !mobility?.active && !mobility?.walking && (!rig || rig.mode !== CAM_MODE.PHOTO)){
     e.preventDefault(); beginScan();
   }
 });
@@ -1273,27 +1294,27 @@ addEventListener('cosmos:quality', event => {
   resize();
 });
 
-/* 落地动画：从 520 m 高、俯角 38° 一路压到眼高 1.75 m。
-   2.6 秒，末段用 1−(1−t)³ 缓出 —— 匀速下降会在最后一刻显得像穿模，
-   减速触地才有「落下来」的感觉。 */
-const ARRIVE = { on: !SURVIVAL && qs0.get('from') === 'orbit' && !(JOURNEY && savedJourney.landed), elapsed: 0, ms: REDUCED ? 1 : 2600,
+/* 30秒首次登陆演出：补给舱先落并部署 MU-7，随后游隼动力下降；减少动态效果时压缩至3秒。
+   journey=1&explore=1 是 NX07 自己飞来的（航线或入轨后再降落，sceneURL 必带 journey=1）：补给舱只投送一次，这里不再重演，改由游隼实时降落。
+   不带 journey=1 的 explore=1 仍是旧回归页用的首次登陆入口。 */
+const TRAVEL = !SURVIVAL && isJourneyMode() && qs0.get('explore') === '1';
+const ARRIVE = { on: !SURVIVAL && !TRAVEL && qs0.get('from') === 'orbit' && !(JOURNEY && savedJourney.landed), elapsed: 0, ms: REDUCED ? 3000 : 30000,
                  eye0: 520, pitch0: -38 };
+let landingSequence=null;
 function stepArrival(dt){
-  if(!ARRIVE.on) return;
-  ARRIVE.elapsed += dt * 1000;
-  const t = Math.min(1, ARRIVE.elapsed/ARRIVE.ms);
-  const e = 1 - Math.pow(1-t, 3);
-  const v = VIEWS[viewName];
-  CAM.eye   = ARRIVE.eye0   + (v.eye   - ARRIVE.eye0)*e;
-  CAM.pitch = ARRIVE.pitch0 + (v.pitch - ARRIVE.pitch0)*e;
-  applyCamera();
-  if(t >= 1){ ARRIVE.on = false; finishLanding(); }
+  if(!ARRIVE.on)return;
+  if(!landingSequence)landingSequence=createLandingSequence({scene,camera,asset:mobility.flyer.asset,supply:mobility.refuge?.drop,onFinish:p=>mobility.arrivalSite(p),heightAt:(x,z)=>terrainY(x,z,.05)});
+  ARRIVE.elapsed+=dt*1000;
+  if(landingSequence.skipped)ARRIVE.elapsed=ARRIVE.ms;
+  const t=Math.min(1,ARRIVE.elapsed/ARRIVE.ms);
+  landingSequence.update(t*30);
+  if(t>=1){landingSequence.finish();ARRIVE.on=false;CAM.eye=VIEWS[viewName].eye;CAM.pitch=VIEWS[viewName].pitch;camera.fov=CAM.fov;camera.updateProjectionMatrix();applyCamera();finishLanding();}
 }
 
 function loop(now){
-  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  const frameDt = Math.max(0,(now-last)/1000);const dt = Math.min(0.05,frameDt); last = now;
   const activeDt = missionPaused || document.hidden ? 0 : dt;
-  stepArrival(activeDt);
+  stepArrival(missionPaused||document.hidden?0:frameDt);
   if(dt > 0){
     FPS = FPS*0.92 + (1/Math.max(dt,1e-4))*0.08;
     if(FPS < 32 && DPRCAP > 0.8){ DPRCAP = Math.max(0.8, DPRCAP-0.04); resize(); }
@@ -1309,7 +1330,7 @@ function loop(now){
     p.needsUpdate = true;
   }
   stepRover(activeDt);
-  mobility?.update(activeDt, now);
+  mobility?.update(ARRIVE.on?0:activeDt, now);
   stepSurvey(activeDt, now);
   sky.position.copy(camera.position);
   renderer.render(scene, camera);
@@ -1325,7 +1346,7 @@ $('azLab').textContent   = SUN.az+'°';
 $('elLab').textContent   = SUN.el+'°';
 $('hazeLab').textContent = SUN.haze+'%';
 
-/* 整个画面状态都能从 URL 复原：?view=floor&az=250&el=18&haze=24&fov=38
+/* 整个画面状态都能从 URL 复原：?view=floor&az=250&el=18&haze=24&fov=38&relief=1.5
    验收截图靠的就是这个 —— 用鼠标点出来的帧没法保证两次一样。 */
 const qs = qs0;
 const want = qs.get('view');
@@ -1353,6 +1374,8 @@ requestAnimationFrame(async () => {                       // 让「正在生成�
     site: SITE, seeds: { terrain:SEED_TERRAIN, rocks:SEED_ROCK, dust:SEED_DUST },
     grid: { NT, NR, R0, RMAX, growth:+GROWTH.toFixed(4) },
     counts: STATS,
+    relief: () => RELIEF,
+    heightAt: (x,z,cell=.4) => terrainY(x,z,cell),
     camera: () => ({ view:viewName, ...CAM, pos:camera.position.toArray().map(v=>+v.toFixed(2)) }),
     sun: () => ({ ...SUN, dir: sunDir().toArray().map(v=>+v.toFixed(3)) }),
     buildMs: +(performance.now()-t0).toFixed(0)
@@ -1371,9 +1394,9 @@ requestAnimationFrame(async () => {                       // 让「正在生成�
 });
 
 function initMobility(){
-  mobility = mountMobility({ kind:'surface', site:SITE, scene, camera, canvas,
+  mobility = mountMobility({ kind:'surface', arriving:ARRIVE.on, travel:TRAVEL, routeArrival:!TRAVEL ? null : qs0.get('from') === 'route' ? { heading:parseFloat(qs0.get('hdg')) } : qs0.get('from') === 'orbit' ? { orbit:true } : null, onDepart:saveRover, site:SITE, scene, camera, canvas, renderer,
     heightAt:(x,z)=>terrainY(x,z,.05),
-    rover:{model:()=>ROVER,cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
+    rover:{traction:()=>drvIn?.ctl.tc??true,toggleTraction:()=>{if(drvIn)drvIn.ctl.tc=!drvIn.ctl.tc;},model:()=>ROVER,interact:()=>{if(JOURNEY&&canScan()){beginScan();return true;}return false;},photo:()=>{if(rig){rig.setMode(rig.mode===CAM_MODE.PHOTO?CAM_MODE.CHASE:CAM_MODE.PHOTO,ROVER);}},cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
       position:()=>ROVER?{x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)}:{x:6,z:-14,heading:Math.PI},
       ensure:async()=>{if(!ROVER)await enterDrive();},enter:enterDrive,exit:exitDrive},
     getPlayer:()=>ROVER ? {x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)} : {x:6,z:-14,heading:Math.PI},

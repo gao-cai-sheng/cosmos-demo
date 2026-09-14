@@ -3,7 +3,7 @@ import { makeDriveInput } from '../../tools/rover/输入.js';
 import { walkStep, WALK_SPEED, RUN_SPEED } from './walking.js';
 
 /** One EVA character, feet at y=0, +Z forward, authored suit height 1.9 m. */
-export function createAstronaut({scene, camera, canvas, heightAt, blocked, ceilingAt = () => Infinity}) {
+export function createAstronaut({scene, camera, canvas, heightAt, blocked, ceilingAt = () => Infinity, solidAt = () => false}) {
   const root = new THREE.Group(); root.name = 'COSMOS EVA astronaut'; root.visible = false; scene.add(root);
   const suit = new THREE.MeshStandardMaterial({color:0xe1e3dc, roughness:.78});
   const joint = new THREE.MeshStandardMaterial({color:0x29373c, roughness:.88});
@@ -70,7 +70,7 @@ export function createAstronaut({scene, camera, canvas, heightAt, blocked, ceili
     dt=Math.min(dt,.05); const c=input.update(dt), has=k=>[...held.values()].includes(k);
     if(c.camCycle){firstPerson=!firstPerson;sync();}
     heading-=c.lookX*.003; pitch=THREE.MathUtils.clamp(pitch+c.lookY*.003,-1.1,1.15);
-    distance=THREE.MathUtils.clamp(distance+c.zoom*.45,2.8,9);
+    if(!firstPerson&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),1.6,180);
     const forward=has('forward')?1:has('back')?-1:c.throttle;
     const right=has('right')?1:has('left')?-1:c.steer;
     const norm=Math.max(1,Math.hypot(forward,right)), pace=c.boost||has('run')?RUN_SPEED:WALK_SPEED;
@@ -101,20 +101,35 @@ export function createAstronaut({scene, camera, canvas, heightAt, blocked, ceili
       look.add(new THREE.Vector3(Math.sin(heading)*Math.cos(pitch),-Math.sin(pitch),Math.cos(heading)*Math.cos(pitch)));
     }else{
       const target=look.clone().add(new THREE.Vector3(-Math.sin(heading)*distance*Math.cos(pitch),Math.sin(pitch)*distance+.45,-Math.cos(heading)*distance*Math.cos(pitch)));
-      // Pull the camera inward before terrain/buildings; never put it through a dome.
+      // A low orbit can aim the camera through the ground.  The old collision loop
+      // stopped at the first buried sample, pinning the eye beside the astronaut
+      // while `distance` kept changing invisibly.  Looking level again then exposed
+      // that stored distance as a large jump.  Raise the orbit endpoint enough for
+      // the complete sight line to clear the sampled terrain, so wheel zoom remains
+      // visible at every pitch.
+      for(let i=1;i<=30;i++){
+        const t=i/30;
+        const x=THREE.MathUtils.lerp(look.x,target.x,t);
+        const z=THREE.MathUtils.lerp(look.z,target.z,t);
+        const requiredEndY=look.y+(heightAt(x,z)+.25-look.y)/t;
+        target.y=Math.max(target.y,requiredEndY);
+      }
+      // Buildings and shelter ceilings still shorten the boom. Terrain no longer
+      // does: it has already been cleared by lifting the orbit above it.
       const eye=look.clone();
       for(let i=1;i<=30;i++){
         const p=look.clone().lerp(target,i/30);
-        if(p.y<heightAt(p.x,p.z)+.25||p.y>ceilingAt(p.x,p.z)-.12||blocked(p.x,p.z))break;
+        if(p.y>ceilingAt(p.x,p.z)-.12||blocked(p.x,p.z)||solidAt(p.x,p.y,p.z))break;
         eye.copy(p);
       }
       camera.position.copy(eye);
     }
     camera.lookAt(look); camera.fov=firstPerson?68:55; camera.updateProjectionMatrix();
   }
-  return {update,get active(){return active;},get position(){return position;},get heading(){return heading;},get speed(){return speed;},
+  function unseat(){if(root.parent!==scene)scene.add(root);root.traverse(o=>{if(o.name.includes('Helmet')||o.name==='Gold visor')o.visible=true;});legs.forEach(l=>l.rotation.x=0);arms.forEach(a=>a.rotation.x=0);}
+  return {root,seat(parent){remote=false;active=false;sync();parent.add(root);root.position.set(-.43,1.45,3.45);root.rotation.set(0,0,0);legs.forEach(l=>l.rotation.x=-1.15);arms.forEach(a=>a.rotation.x=-.85);root.visible=true;},seatView(first){root.traverse(o=>{if(o.name.includes('Helmet')||o.name==='Gold visor')o.visible=!first;});},update,get active(){return active;},get position(){return position;},get heading(){return heading;},get speed(){return speed;},
     get view(){return firstPerson?'第一人称':'第三人称';},
-    start(p){position.set(p.x,heightAt(p.x,p.z),p.z);heading=p.heading||0;bodyHeading=heading;remote=false;active=true;sync();update(0);},
+    start(p){unseat();position.set(p.x,heightAt(p.x,p.z),p.z);heading=p.heading||0;bodyHeading=heading;remote=false;active=true;sync();update(0);},
     stop(){remote=false;active=false;speed=0;sync();},
     standby(){remote=true;active=false;speed=0;legs.forEach(l=>l.rotation.x=0);arms.forEach(a=>a.rotation.x=0);sync();},setPaused(value){paused=value;sync();},
     setView(value){firstPerson=!!value;sync();update(0);},

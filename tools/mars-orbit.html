@@ -121,10 +121,23 @@
     <button id="flyOff">悬停</button>
   </div>
 
+  <!-- 两个倍速都是对数刻度：最左 = 停，往右 1× … 10000×。 -->
+  <div class="lab">公转倍速 · 飞船绕火星 <b id="orbLab">—</b></div>
+  <input type="range" id="orb" min="0" max="1000" step="1" value="445" />
+
+  <div class="lab">自转倍速 · 火星自己转 <b id="spnLab">—</b></div>
+  <input type="range" id="spn" min="0" max="1000" step="1" value="445" />
+
   <div class="lab">黄道面 · 火星黄赤交角 25.2°</div>
   <div class="seg">
     <button id="eclOn" class="on">显示</button>
     <button id="eclOff">隐藏</button>
+  </div>
+
+  <div class="lab">晨昏线 · 白天和黑夜的分界</div>
+  <div class="seg">
+    <button id="trmOn" class="on">显示</button>
+    <button id="trmOff">隐藏</button>
   </div>
 
   <div class="lab">飞往</div>
@@ -147,7 +160,7 @@
   <div class="row"><span>基准半径</span><b>3396.2 km</b></div>
 </div>
 
-<div class="hint">拖动 = 改变位置 · 滚轮 = 高度 · 前进 = 公转 + 火星自转（60×）</div>
+<div class="hint">横拖 = 改变位置 · 竖拖 = 镜头俯仰 · 滚轮 = 高度 · 前进 = 公转 + 火星自转（倍速见左侧滑块）</div>
 <div id="fade"></div>
 <div id="busy">正在载入 MOLA 高程…</div>
 <div id="err"></div>
@@ -157,6 +170,7 @@
 import { getJourney, startJourney, updateJourney, isJourneyMode, sceneURL, DEFAULT_SITE, getSettings } from '../src/journey/state.js';
 import { PLACES } from '../src/journey/landmarks.js';
 import { mountJourneyUI } from '../src/journey/ui.js';
+import { dragOrbitPitch, buildOrbitBasis, orbitPitchLimit } from '../src/journey/orbit-camera.js';
 const JOURNEY = isJourneyMode();
 const ORBIT_QS = new URLSearchParams(location.search);
 const FLIGHT_ORBIT = ORBIT_QS.get('flight') === '1';
@@ -573,7 +587,9 @@ let HMIN = 0, HMAX = 0;
 // 高度滑块是对数刻度，对应值约为 919。
 const MOTION = {
   // 让轨道运动和自转在一次观察中可见；遥测会明确标出这是加速后的模拟时间。
-  timeScale: 60,
+  // 公转（飞船沿航向前进）和自转（火星转、表现为太阳在地面上移动）分开调速。
+  orbitScale: 60,
+  spinScale: 60,
   marsDay: 88775.244,                    // 火星恒星日，秒
   elapsed: 0,
   marsSpin: 0,
@@ -583,19 +599,19 @@ const MARS_OBLIQUITY = 25.19 * D2R;
 
 const S = { lat:18.0, lon:214.0, alt:6500, pitch:5, hdg:90, exag:9,
             sunAz:132, sunDec:15, sunElev:12, sunFollow:false, sunSide:-1,
-            ecliptic:true, detail:0.17, color:0, fly:true,
+            ecliptic:true, eclSide:1, terminator:true, detail:0.17, color:0, fly:true,
             names:true, sites:true, dense:false };
 if (JOURNEY) {
   Object.assign(S, { ...getJourney().site, alt:3600, exag:3, sunFollow:true,
-    sunElev:28, sunDec:0, fly:false, ecliptic:false, names:true });
+    sunElev:28, sunDec:0, fly:false, ecliptic:false, terminator:false, names:true });
 }
 if (!JOURNEY || FLIGHT_ORBIT) {
   const lat = Number.parseFloat(ORBIT_QS.get('lat')), lon = Number.parseFloat(ORBIT_QS.get('lon'));
   if (Number.isFinite(lat)) S.lat = Math.max(-88, Math.min(88, lat));
   if (Number.isFinite(lon)) S.lon = ((lon % 360) + 360) % 360;
   if (FLIGHT_ORBIT) {
-    Object.assign(S,{alt:160,pitch:70,fly:ORBIT_QS.get('target')!=='1',sunFollow:true,sunElev:28,exag:1,ecliptic:false});
-    MOTION.timeScale=1;
+    Object.assign(S,{alt:160,pitch:70,fly:ORBIT_QS.get('target')!=='1',sunFollow:true,sunElev:28,exag:1,ecliptic:false,terminator:false});
+    MOTION.orbitScale=1; MOTION.spinScale=1;
   }
 }
 
@@ -630,6 +646,72 @@ function sunLonFor(elevDeg){
   const c = (Math.sin(e) - Math.sin(phi)*Math.sin(dec)) / denom;
   const d = Math.acos(Math.max(-1, Math.min(1, c)))/D2R;
   return ((S.lon + S.sunSide*d) % 360 + 360) % 360;
+}
+
+/* ------------------------------------------------------------
+   黄道面
+   原来的黄道环写死在行星坐标里，和太阳没有关系 —— 太阳经常不在环上。
+   可太阳本来就在火星公转轨道面上。给定日下点（经度 λs、纬度 δ）和黄赤交角 ε，
+   黄道北 n 要同时满足 n·太阳 = 0、n·自转轴 = cos ε，解出来是
+       n = cos ε·ŷ + sin ε·(k·ŝh + σ·√(1−k²)·êh)，  k = −tan δ / tan ε
+   ŝh 是日下点方向的水平单位向量，êh 是它的正东。σ = ±1 两个解互为镜像
+   （季节正走向至日 / 正离开至日），选定一个就一直沿用，环才不会跳。
+   ------------------------------------------------------------ */
+const v3 = {
+  dot:(a,b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2],
+  cross:(a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+  norm:a => { const l = Math.hypot(a[0],a[1],a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; },
+  mix:(a,ka,b,kb) => [a[0]*ka+b[0]*kb, a[1]*ka+b[1]*kb, a[2]*ka+b[2]*kb],
+};
+function eclipticNormal(){
+  const e = MARS_OBLIQUITY, dec = S.sunDec*D2R, az = S.sunAz*D2R;
+  const k = Math.max(-1, Math.min(1, -Math.tan(dec)/Math.tan(e)));
+  const q = Math.sqrt(1 - k*k) * S.eclSide;
+  const tx = k*Math.cos(az) - q*Math.sin(az), tz = k*Math.sin(az) + q*Math.cos(az);
+  return [Math.sin(e)*tx, Math.cos(e), Math.sin(e)*tz];
+}
+
+/* ------------------------------------------------------------
+   地球仪视角（工具模式的开局，也可以从「飞往」回来）
+   从黄道面上方 above° 看向球心，画面「上」= 黄道北：黄道环横着，
+   自转轴相对它歪 25.2°，和桌上的地球仪一个摆法。
+   太阳放在黄道面内、偏离视线 sunFromView°、画面右侧；北极朝太阳那边倒，
+   即北半球夏季 —— 倾角和它带来的季节差一眼能看出来。
+   sunFromView 原来是 55°：晨昏线离球心 35°，投影后只剩左缘 27% 的一条窄边，
+   又被 gamma 提亮，几乎看不见。70° 时晨昏线在画面左半、约半径一半处，
+   黑夜占四分之一个球面，北极圈里的极昼也能看出来。
+   ------------------------------------------------------------ */
+const GLOBE = { faceLon:295, above:12, sunFromView:70, alt:6500 };
+function applyGlobeView(){
+  const e = MARS_OBLIQUITY, lo = GLOBE.faceLon*D2R;
+  const c0 = [Math.cos(lo), 0, Math.sin(lo)];
+  const east0 = [-Math.sin(lo), 0, Math.cos(lo)];
+  const n = v3.mix([0,1,0], Math.cos(e), east0, -Math.sin(e));   // 黄道北偏西 → 北极在画面上朝右倒
+  const right = v3.norm(v3.cross(c0, n));                          // 黄道面内、画面右方
+  const b = GLOBE.sunFromView*D2R, g = GLOBE.above*D2R;
+  const sun = v3.mix(c0, Math.cos(b), right, Math.sin(b));
+  const cam = v3.norm(v3.mix(c0, Math.cos(g), n, Math.sin(g)));
+
+  S.lat = Math.asin(cam[1])/D2R;
+  S.lon = ((Math.atan2(cam[2], cam[0])/D2R) % 360 + 360) % 360;
+  const lc = S.lon*D2R;
+  const east = [-Math.sin(lc), 0, Math.cos(lc)];
+  const north = v3.cross(cam, east);
+  /* 俯仰 0 时画面上方就是航向方向，所以把航向对准黄道北在切平面上的投影 */
+  const fwd = v3.norm(v3.mix(n, 1, cam, -v3.dot(n, cam)));
+  S.hdg = ((Math.atan2(v3.dot(fwd, east), v3.dot(fwd, north))/D2R) % 360 + 360) % 360;
+  S.pitch = 0;
+  S.alt = GLOBE.alt;
+
+  S.sunDec = Math.asin(sun[1])/D2R;
+  S.sunAz = ((Math.atan2(sun[2], sun[0])/D2R) % 360 + 360) % 360;
+  S.eclSide = 1;
+  if (v3.dot(eclipticNormal(), n) < 0.999) S.eclSide = -1;
+  S.sunSide = 1;                                   // 太阳在东
+  S.sunElev = Math.round(sunElevAt(S.lat, S.lon));
+  S.sunFollow = false;
+  MOTION.sunAz0 = ((S.sunAz + MOTION.marsSpin/D2R) % 360 + 360) % 360;
+  MOTION.orbitScale = 0;                           // 飞船不动，只让火星自己转
 }
 
 const JUMPS = [
@@ -668,36 +750,8 @@ function buildCamera(){
   const rN = 1 + Math.max(S.alt, heightAtJS(S.lat, S.lon)*S.exag + 2)/RM;
   const cam = [up[0]*rN, up[1]*rN, up[2]*rN];
 
-  // 局部东 / 北
-  let east = [-Math.sin(lo), 0, Math.cos(lo)];
-  const north = [
-    up[1]*east[2]-up[2]*east[1],
-    up[2]*east[0]-up[0]*east[2],
-    up[0]*east[1]-up[1]*east[0]
-  ];
-  const h = S.hdg*D2R;
-  const fwd = [
-    north[0]*Math.cos(h)+east[0]*Math.sin(h),
-    north[1]*Math.cos(h)+east[1]*Math.sin(h),
-    north[2]*Math.cos(h)+east[2]*Math.sin(h)
-  ];
-  // 俯仰：0 = 垂直向下，90 = 正对地平线
-  const p = S.pitch*D2R;
-  const dir = [
-    -up[0]*Math.cos(p)+fwd[0]*Math.sin(p),
-    -up[1]*Math.cos(p)+fwd[1]*Math.sin(p),
-    -up[2]*Math.cos(p)+fwd[2]*Math.sin(p)
-  ];
-  const dl = Math.hypot(...dir); const F = dir.map(v=>v/dl);
-  /* 相机基必须满足 右 × 上 = 前（右手系）。
-       右 = 上 × 前
-       上 = 前 × 右
-     曾经写成 右 = 前 × 上（差一个负号），上向量看着是对的，
-     但整幅画面左右镜像 —— 地貌会出现在错误的一侧，很难用肉眼发现。 */
-  let R = [up[1]*F[2]-up[2]*F[1], up[2]*F[0]-up[0]*F[2], up[0]*F[1]-up[1]*F[0]];
-  const rl = Math.hypot(...R); R = R.map(v=>v/rl);
-  const Uv = [F[1]*R[2]-F[2]*R[1], F[2]*R[0]-F[0]*R[2], F[0]*R[1]-F[1]*R[0]];
-  return { cam, basis:[R[0],R[1],R[2], Uv[0],Uv[1],Uv[2], F[0],F[1],F[2]] };
+  // 俯仰：0 = 垂直向下。独立 helper 用局部前向定义右轴，避免 0° 时 up × view 退化成零向量。
+  return { cam, basis:buildOrbitBasis(S.lat, S.lon, S.hdg, S.pitch) };
 }
 
 /* 自适应渲染倍率。
@@ -738,6 +792,7 @@ function draw(){
 
   drawLabels(C);
   telemetry();
+  motionLabels();
 }
 
 function fmtLat(v){ return Math.abs(v).toFixed(2)+'°'+(v>=0?'N':'S'); }
@@ -761,7 +816,7 @@ function telemetry(){
     row('地平线距离', horiz.toFixed(0)+' km') +
     row('圆轨速度', v.toFixed(2)+' km/s') +
     row('环绕周期', per.toFixed(0)+' 分') +
-    row('模拟时间', (simHours < 1 ? (MOTION.elapsed/60).toFixed(1)+' 分' : simHours.toFixed(2)+' 时') + ' · '+MOTION.timeScale+'×') +
+    row('模拟时间', (simHours < 1 ? (MOTION.elapsed/60).toFixed(1)+' 分' : simHours.toFixed(2)+' 时') + ' · '+fmtScale(MOTION.spinScale)) +
     row('火星自转', spinDeg+'°') +
     row('航向', S.hdg.toFixed(0)+'°') +
     row('视角', S.pitch < 12 ? '近乎垂直向下'
@@ -828,14 +883,50 @@ function project(P, cam, R, Uv, F, W, H){
 /* 黄道面不是火星赤道面：火星黄赤交角约 25.2°。
    这里用一条贴在行星外缘的参考环表示黄道面，背面用虚线压低，
    这样它既能看出倾角，也不会假装自己是行星表面的一条线。 */
+/* 晨昏线：与太阳方向垂直的大圆，也就是着色器里 dot(N, 太阳) = 0 的那一圈。
+   着色是柔和过渡（余弦衰减 + 环境光 + gamma），整张球看时分界很难指认，
+   所以另外描一条线。每个点贴在夸张后的地形上，和标注同一个规则；
+   背面那半圈被星球挡住，不画。 */
+function drawTerminator(C){
+  if(!S.terminator) return;
+  const W = innerWidth, H = innerHeight;
+  const B = C.basis;
+  const R = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
+  const s = sunVec();
+  const a = v3.norm(Math.abs(s[1]) > 0.99 ? v3.cross(s, [1,0,0]) : v3.cross(s, [0,1,0]));
+  const b = v3.cross(s, a);
+  ox.save();
+  ox.strokeStyle = 'rgba(245,183,111,.85)';
+  ox.lineWidth = 1.4;
+  ox.lineCap = 'round';
+  ox.beginPath();
+  let drawing = false;
+  for(let i=0; i<=240; i++){
+    const t = i/240 * Math.PI*2;
+    const d = v3.mix(a, Math.cos(t), b, Math.sin(t));
+    const lat = Math.asin(Math.max(-1, Math.min(1, d[1])))/D2R, lon = Math.atan2(d[2], d[0])/D2R;
+    const r = 1 + heightAtJS(lat, lon)*S.exag/RM + 0.0015;
+    const P = [d[0]*r, d[1]*r, d[2]*r];
+    const front = (C.cam[0]-P[0])*P[0] + (C.cam[1]-P[1])*P[1] + (C.cam[2]-P[2])*P[2] > 0;
+    const sp = front ? project(P, C.cam, R, Uv, F, W, H) : null;
+    if(!sp){ drawing = false; continue; }
+    if(!drawing){ ox.moveTo(sp[0], sp[1]); drawing = true; }
+    else ox.lineTo(sp[0], sp[1]);
+  }
+  ox.stroke();
+  ox.restore();
+}
+
 function drawEclipticPlane(C){
   if(!S.ecliptic) return;
   const W = innerWidth, H = innerHeight;
   const dpr = Math.min(devicePixelRatio||1, 2);
   const B = C.basis;
   const R = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
-  const axisA = [1, 0, 0];
-  const axisB = [0, Math.sin(MARS_OBLIQUITY), -Math.cos(MARS_OBLIQUITY)];
+  /* 环由黄道北决定，并从太阳方向起画，保证太阳落在环上 */
+  const n = eclipticNormal(), s = sunVec();
+  const axisA = v3.norm(v3.mix(s, 1, n, -v3.dot(s, n)));
+  const axisB = v3.cross(n, axisA);
   const ringRadius = 1.07;
   const samples = 192;
   const points = [];
@@ -884,6 +975,7 @@ function drawLabels(C){
   ox.setTransform(dpr,0,0,dpr,0,0);
   ox.clearRect(0,0,W,H);
   drawEclipticPlane(C);
+  drawTerminator(C);
   if(!S.names) return;
 
   const cam = C.cam, B = C.basis;
@@ -980,72 +1072,46 @@ let drag=false, px=0, py=0;
 canvas.addEventListener('pointerdown', e=>{ if(orbitUI?.paused || LAND.on) return; drag=true; px=e.clientX; py=e.clientY; try { canvas.setPointerCapture(e.pointerId); } catch {} });
 canvas.addEventListener('pointerup', ()=>drag=false);
 canvas.addEventListener('pointercancel', ()=>drag=false);
-/* 拖拽 = 抓住地面拖。
-   旧版把鼠标 X 写死成经度、Y 写死成纬度，但屏幕的上方和右方是由相机基决定的：
-   默认航向 90°（朝东）时，屏幕上方其实是「东」、右方是「南」。
-   于是横拖会让地面上下跑，而且方向还是反的。
-   正确做法是把鼠标位移投到相机的水平屏幕轴上，再换算回经纬度。 */
+/* 轨道相机拖拽：横向仍抓住地表平移，纵向恢复为镜头俯仰。
+   这样保留原来的轨道选址/观察能力，同时与地表游隼的上下拖动视角保持一致。 */
 canvas.addEventListener('pointermove', e=>{
   if(!drag) return;
   const dx = e.clientX-px, dy = e.clientY-py;
   px=e.clientX; py=e.clientY;
   if(!dx && !dy) return;
 
+  if(dy){
+    S.pitch = dragOrbitPitch(S.pitch, dy, orbitPitchLimit(S.alt, RM, FOV));
+    const shown = Math.round(S.pitch);
+    $('pit').value = shown;
+    $('pitLab').textContent = shown+'°';
+  }
+  if(!dx) return;
+
   const CAM = buildCamera(), B = CAM.basis;
   const Rv = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
   const la = S.lat*D2R, lo = S.lon*D2R;
-  const up = [Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)];
 
-  /* 「屏幕上方」在地面上对应的方向。
-     Uv 和 F 的水平分量都沿着镜头前方（系数分别是 cos(俯仰) 和 sin(俯仰)），
-     加起来再归一化，垂直俯视和平视都不会退化。 */
-  const flat = v => { const d = v[0]*up[0]+v[1]*up[1]+v[2]*up[2];
-                      return [v[0]-up[0]*d, v[1]-up[1]*d, v[2]-up[2]*d]; };
-  const fu = flat(Uv), ff = flat(F);
-  let g = [fu[0]+ff[0], fu[1]+ff[1], fu[2]+ff[2]];
-  const gl2 = Math.hypot(...g);
-  if(gl2 < 1e-6) return;
-  g = g.map(v=>v/gl2);
-  // Rv = 上 × 前，本来就与 up 垂直，已经是水平的
-
-  /* 拖拽速度不该是个魔数。要「指哪跟哪」，每像素对应多少地面弧度，
-     取决于光标底下那一点离镜头多远 —— 于是照着光标打一条射线，和地形壳求交。
-     用屏幕中心算是不够的：俯仰 74° 时中心早就是天空了，而画面下半部分的
-     地面比中心近得多，同一个增益在那儿会快上两三倍。
-     光标落在天上就退回星下点距离；贴地平线时交点会跑到极远，钳一下，
-     免得一拖飞过半个星球。 */
+  /* 横向平移速度继续由光标下方地表距离决定，避免高轨/低轨手感突变。 */
   const H2 = innerHeight, W2 = innerWidth;
   const cu = ((e.clientX*2 - W2)/H2)*FOV, cv = ((H2 - e.clientY)*2 - H2)/H2*FOV;
   let cd = [Rv[0]*cu+Uv[0]*cv+F[0], Rv[1]*cu+Uv[1]*cv+F[1], Rv[2]*cu+Uv[2]*cv+F[2]];
   const cdl = Math.hypot(...cd); cd = cd.map(v=>v/cdl);
-
   const r0 = 1 + heightAtJS(S.lat, S.lon)*S.exag/RM;
   const ro = CAM.cam;
   const bq = ro[0]*cd[0]+ro[1]*cd[1]+ro[2]*cd[2];
   const cq = ro[0]*ro[0]+ro[1]*ro[1]+ro[2]*ro[2] - r0*r0;
   const disc = bq*bq - cq;
-  let dist = S.alt;                                  // 光标在天上就退回星下点
+  let dist = S.alt;
   if(disc > 0){ const t = -bq - Math.sqrt(disc); if(t > 0) dist = t*RM; }
   dist = Math.max(S.alt*0.5, Math.min(dist, S.alt*8 + 200));
-  const k = dist * (2*FOV/H2) / RM / D2R;            // 度/像素
+  const k = dist * (2*FOV/H2) / RM / D2R;
 
-  /* 竖着拖要再补一刀。斜视时地面被透视压扁：视线越贴近地面，镜头前后走
-     同样的距离，画面上挪动的像素越少 —— 只用同一个增益，竖拖会明显比横拖迟钝
-     （实测默认视角下只有横向的三分之一）。
-     补偿量是视线与前向的夹角，贴地平线时会发散，钳到 3 倍为止。 */
-  const gd = g[0]*cd[0]+g[1]*cd[1]+g[2]*cd[2];
-  const ky = Math.min(3, 1/Math.sqrt(Math.max(0.01, 1-gd*gd)));
-
-  /* 抓住地面：地面往鼠标方向走 ⟺ 镜头往反方向走。
-     鼠标右移 → 镜头沿 −屏幕右；鼠标下移 → 镜头沿 +屏幕上（也就是往前飞）。 */
-  const fy = dy*ky;
-  const mv = [-dx*Rv[0]+fy*g[0], -dx*Rv[1]+fy*g[1], -dx*Rv[2]+fy*g[2]];
-
+  const mv = [-dx*Rv[0], -dx*Rv[1], -dx*Rv[2]];
   const east  = [-Math.sin(lo), 0, Math.cos(lo)];
   const north = [-Math.sin(la)*Math.cos(lo), Math.cos(la), -Math.sin(la)*Math.sin(lo)];
   const dN = mv[0]*north[0]+mv[1]*north[1]+mv[2]*north[2];
   const dE = mv[0]*east[0] +mv[1]*east[1] +mv[2]*east[2];
-  // 高纬度时同样的地面距离对应更多经度，除以 cosφ 才能保持手感一致
   const clat = Math.max(0.08, Math.cos(la));
   S.lat = Math.max(-88, Math.min(88, S.lat + dN*k));
   S.lon += dE*k/clat;
@@ -1054,8 +1120,11 @@ canvas.addEventListener('wheel', e=>{
   if(orbitUI?.paused || LAND.on) return;
   e.preventDefault();
   S.alt = Math.max(6, Math.min(12000, S.alt * Math.exp(e.deltaY*0.0015)));
+  S.pitch = Math.min(S.pitch, orbitPitchLimit(S.alt, RM, FOV));
   document.getElementById('alt').value = altToSlider(S.alt);
   document.getElementById('altLab').textContent = S.alt.toFixed(0)+' km';
+  document.getElementById('pit').value = Math.round(S.pitch);
+  document.getElementById('pitLab').textContent = Math.round(S.pitch)+'°';
 }, {passive:false});
 
 /* 高度滑块用对数刻度：6 km … 12000 km */
@@ -1063,7 +1132,7 @@ function sliderToAlt(v){ return 6*Math.pow(12000/6, v/1000); }
 function altToSlider(a){ return 1000*Math.log(a/6)/Math.log(12000/6); }
 
 const $ = id => document.getElementById(id);
-$('alt').oninput = () => { S.alt = sliderToAlt(+$('alt').value); $('altLab').textContent = S.alt.toFixed(0)+' km'; };
+$('alt').oninput = () => { S.alt = sliderToAlt(+$('alt').value); S.pitch = Math.min(S.pitch, orbitPitchLimit(S.alt, RM, FOV)); $('altLab').textContent = S.alt.toFixed(0)+' km'; $('pit').value = Math.round(S.pitch); $('pitLab').textContent = Math.round(S.pitch)+'°'; };
 $('pit').oninput = () => { S.pitch = +$('pit').value; $('pitLab').textContent = S.pitch+'°'; };
 $('hdg').oninput = () => { S.hdg = +$('hdg').value; $('hdgLab').textContent = S.hdg+'°'; };
 $('exg').oninput = () => { S.exag = +$('exg').value; $('exgLab').textContent = '×'+S.exag.toFixed(1); };
@@ -1074,6 +1143,29 @@ $('elv').oninput = () => { S.sunElev = +$('elv').value; $('elvLab').textContent 
                            setSunMode(true); };           // 拖高度角 = 切回跟随
 $('dec').oninput = () => { S.sunDec = +$('dec').value; $('decLab').textContent = S.sunDec.toFixed(1)+'°'; };
 $('det').oninput = () => { S.detail = +$('det').value; $('detLab').textContent = S.detail.toFixed(2)+' km'; };
+
+/* 倍速滑块：0 = 停；1…1000 按对数映射到 1×…10000×（250 格一个数量级）。 */
+function sliderToScale(v){
+  if(v <= 0) return 0;
+  const m = Math.pow(10, v/250);
+  return m < 10 ? Math.round(m*10)/10 : Math.round(m);
+}
+function scaleToSlider(m){ return m <= 0 ? 0 : Math.max(1, Math.round(250*Math.log10(m))); }
+function fmtScale(m){ return m <= 0 ? '停' : (m < 10 ? String(+m.toFixed(1)) : String(m)) + '×'; }
+function fmtWall(sec){
+  return sec < 60 ? sec.toFixed(0)+' 秒'
+       : sec < 3600 ? (sec/60).toFixed(1)+' 分'
+       : sec < 172800 ? (sec/3600).toFixed(1)+' 时'
+       : (sec/86400).toFixed(0)+' 天';
+}
+/* 标签写「屏幕上转一圈要等多久」—— 倍速数字本身不直观。公转周期随高度变，所以每帧刷新。 */
+function motionLabels(){
+  const r = RM + S.alt, orbitSec = 2*Math.PI*r/Math.sqrt(42828/r);
+  $('orbLab').textContent = fmtScale(MOTION.orbitScale) + (MOTION.orbitScale > 0 ? ' · 一圈 '+fmtWall(orbitSec/MOTION.orbitScale) : '');
+  $('spnLab').textContent = fmtScale(MOTION.spinScale) + (MOTION.spinScale > 0 ? ' · 一圈 '+fmtWall(MOTION.marsDay/MOTION.spinScale) : '');
+}
+$('orb').oninput = () => { MOTION.orbitScale = sliderToScale(+$('orb').value); motionLabels(); };
+$('spn').oninput = () => { MOTION.spinScale = sliderToScale(+$('spn').value); motionLabels(); };
 
 function setSunMode(follow){
   if(!follow) MOTION.sunAz0 = ((S.sunAz + MOTION.marsSpin/D2R) % 360 + 360) % 360;
@@ -1109,6 +1201,15 @@ function setEcliptic(on){
 $('eclOn').onclick = () => setEcliptic(true);
 $('eclOff').onclick = () => setEcliptic(false);
 
+function setTerminator(on){
+  S.terminator = on;
+  $('trmOn').classList.toggle('on', on);
+  $('trmOff').classList.toggle('on', !on);
+}
+$('trmOn').onclick = () => setTerminator(true);
+$('trmOff').onclick = () => setTerminator(false);
+setTerminator(S.terminator);
+
 const jp = $('jump');
 for(const [n,la,lo,hd,al] of JUMPS){
   const b = document.createElement('button');
@@ -1119,6 +1220,28 @@ for(const [n,la,lo,hd,al] of JUMPS){
     $('hdg').value = hd; $('hdgLab').textContent = hd+'°';
   };
   jp.appendChild(b);
+}
+{
+  const b = document.createElement('button');
+  b.textContent = '地球仪';
+  b.onclick = () => { applyGlobeView(); syncViewPanel(); };
+  jp.prepend(b);
+}
+
+/* 视角和太阳被代码整体改写之后，把面板上的滑块、数字、按钮对齐回来 */
+function syncViewPanel(){
+  $('alt').value = altToSlider(S.alt); $('altLab').textContent = S.alt.toFixed(0)+' km';
+  $('pit').value = Math.round(S.pitch); $('pitLab').textContent = Math.round(S.pitch)+'°';
+  $('hdg').value = Math.round(S.hdg);   $('hdgLab').textContent = Math.round(S.hdg)+'°';
+  $('elv').value = S.sunElev;           $('elvLab').textContent = S.sunElev+'°';
+  $('dec').value = S.sunDec;            $('decLab').textContent = S.sunDec.toFixed(1)+'°';
+  $('sWest').classList.toggle('on', S.sunSide < 0);
+  $('sEast').classList.toggle('on', S.sunSide > 0);
+  $('sFol').classList.toggle('on', S.sunFollow);
+  $('sFix').classList.toggle('on', !S.sunFollow);
+  $('orb').value = scaleToSlider(MOTION.orbitScale);
+  $('spn').value = scaleToSlider(MOTION.spinScale);
+  motionLabels();
 }
 
 /* ============================================================
@@ -1170,9 +1293,13 @@ $('landBtn').onclick = beginLanding;
 
 function advanceMotion(dt){
   if(!S.fly || drag || LAND.on) return 0;
-  const simDt = dt * MOTION.timeScale;
+  const simDt = dt * MOTION.spinScale;
   MOTION.elapsed += simDt;
   MOTION.marsSpin = (MOTION.marsSpin + simDt/MOTION.marsDay * Math.PI*2) % (Math.PI*2);
+  /* 镜头不跟着火星转：火星转过多少，星下点就往西退多少。
+     太阳、黄道环和镜头的相对位置因此不变，看到的是星球在脚下转 —— 像地球仪。
+     以前镜头贴着地面一起转，自转只表现为太阳在动，「跟随」模式下更是完全看不出来。 */
+  S.lon -= simDt/MOTION.marsDay * 360;
   if(!S.sunFollow){
     S.sunAz = ((MOTION.sunAz0 - MOTION.marsSpin/D2R) % 360 + 360) % 360;
   }
@@ -1201,8 +1328,8 @@ function loop(now){
     const w = v/(RM+S.alt) * 180/Math.PI;      // 度/秒
     const h = S.hdg*D2R;
     const clat = Math.max(0.05, Math.cos(S.lat*D2R));
-    S.lat += w*dt*Math.cos(h)*MOTION.timeScale;
-    S.lon += w*dt*Math.sin(h)/clat*MOTION.timeScale;
+    S.lat += w*dt*Math.cos(h)*MOTION.orbitScale;
+    S.lon += w*dt*Math.sin(h)/clat*MOTION.orbitScale;
     if(S.lat >  88){ S.lat =  88; }
     if(S.lat < -88){ S.lat = -88; }
   }
@@ -1260,11 +1387,19 @@ $('exgLab').textContent = '×'+S.exag.toFixed(1);
 $('elvLab').textContent = S.sunElev+'°';
 $('decLab').textContent = S.sunDec.toFixed(1)+'°';
 $('detLab').textContent = S.detail.toFixed(2)+' km';
-/* 开局就把太阳解到 12° 掠射，而不是沿用一个写死的方位角。
-   在默认星下点上这大约是 132°E —— 旧默认值 215° 的高度角是 87.4°，
-   基本就是正当顶。 */
-S.sunAz = sunLonFor(S.sunElev);
-MOTION.sunAz0 = S.sunAz;
+$('orb').value = scaleToSlider(MOTION.orbitScale);
+$('spn').value = scaleToSlider(MOTION.spinScale);
+motionLabels();
+/* 工具模式、且网址没指定经纬度时，开局是地球仪视角。
+   任务 / 飞行模式和带坐标进来的，仍按原来的规则：把太阳解到指定高度角的掠射，
+   而不是沿用写死的方位角（旧默认 215° 的高度角是 87.4°，基本正当顶）。 */
+if (!ORBIT_GAME && !ORBIT_QS.has('lat') && !ORBIT_QS.has('lon')) {
+  applyGlobeView();
+  syncViewPanel();
+} else {
+  S.sunAz = sunLonFor(S.sunElev);
+  MOTION.sunAz0 = S.sunAz;
+}
 $('sun').value = Math.round(S.sunAz);
 $('sunLab').textContent = Math.round(S.sunAz)+'°';
 document.getElementById('busy').style.display = 'none';

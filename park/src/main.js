@@ -1801,13 +1801,14 @@ async function toggleRover() {
     drvIn.setEnabled(false);
     /* 园区里视距上限给到 90 m：穹顶半径 130，拉太近看不出车在哪座楼下面。
        但也不能给到看园区的那个 6000 —— 那是俯瞰机位的量级，驾驶时用不上。 */
-    rig = makeCameraRig(camera, terrainAdapter, { fov: 52, fovGain: 13, dist: 9.2, distMax: 90 });
+    rig = makeCameraRig(camera, terrainAdapter, { fov: 52, fovGain: 13, dist: 9.2, distMin: 1.6, distMax: 240 });
     ROVER.__drive = DRIVE;
    }
    if (!canAct()) { ui.drive.textContent = '遥控探测车'; return; }
    DRIVING = true;
    drvIn.reset();
    drvIn.setEnabled(true);
+   rig.setMode(CAM_MODE.CHASE, ROVER);
    rig.first = true;
    rig.yaw = Math.atan2(ROVER.forward.x, ROVER.forward.z) + Math.PI;
    ui.drive.classList.add('is-active');
@@ -2144,7 +2145,7 @@ function initMobility() {
   ];
   mobility=mountMobility({kind:'park',site:SITE,scene,camera,canvas,
     heightAt:(x,z)=>terrainHeight(x,z,.05),getObstacles:obstacles,
-    rover:{model:()=>ROVER,cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
+    rover:{traction:()=>drvIn?.ctl.tc??true,toggleTraction:()=>{if(drvIn)drvIn.ctl.tc=!drvIn.ctl.tc;},model:()=>ROVER,photo:()=>{if(rig){rig.setMode(rig.mode===CAM_MODE.PHOTO?CAM_MODE.CHASE:CAM_MODE.PHOTO,ROVER);}},cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
       position:()=>ROVER?{x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)}:{x:CAMPUSES[0].x+156,z:CAMPUSES[0].z+40,heading:-Math.PI/2},
       ensure:async()=>{if(!ROVER)await toggleRover();},enter:toggleRover,exit:stopDriving},
     onOverview:()=>{resetCameraInput();updateCamera();},

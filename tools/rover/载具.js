@@ -24,6 +24,12 @@ const WHEEL_R = 0.335, WHEEL_W = 0.30;
 const HALF_TRACK = 0.80;                    // 轮距的一半
 const AXLE_Z = [1.24, 0.0, -1.20];          // 前 / 中 / 后
 const SUSP_REST = 0.46, SUSP_TRAVEL = 0.36;
+/* 整车等比例缩放。上面的尺寸是设计图（模型本地）单位；MU-7 原尺寸运输构型高 3.27 m，
+   超出 ARES 货舱净高 3.09 m，所以整车按 0.9 缩小（高约 2.94 m）。
+   模型用 root.scale 缩放；物理里凡是“世界里的长度”都用下面的换算值，保证轮子仍贴地。 */
+export const ROVER_SCALE = 0.9;
+const WR = WHEEL_R * ROVER_SCALE, WW = WHEEL_W * ROVER_SCALE;
+const SR = SUSP_REST * ROVER_SCALE, ST = SUSP_TRAVEL * ROVER_SCALE;
 /* 按火星整车重量标定：900 × 3.72 = 3348 N，单角 558 N，静态下沉约 0.09 m。
    月面版这两个数是 2700 / 1250（对应 1458 N 整车重）。直接照搬到火星，
    静态就要压掉 0.21 m —— 悬挂行程总共才 0.36 m，等于全程贴着限位块跑。
@@ -232,6 +238,7 @@ export class Rover {
   constructor(terrain, scene) {
     this.terrain = terrain;
     this.root = new THREE.Group();
+    this.root.scale.setScalar(ROVER_SCALE);
     scene.add(this.root);
 
     /* ---- 刚体状态 ---- */
@@ -241,16 +248,17 @@ export class Rover {
     this.omega = new THREE.Vector3();
     this.mass = MASS;
     // 长方体惯量，1.7 × 0.8 × 2.7 m
-    const Ix = MASS / 12 * (0.8 * 0.8 + 2.7 * 2.7);
-    const Iy = MASS / 12 * (1.7 * 1.7 + 2.7 * 2.7);
-    const Iz = MASS / 12 * (1.7 * 1.7 + 0.8 * 0.8);
+    const S2 = ROVER_SCALE * ROVER_SCALE;
+    const Ix = MASS / 12 * (0.8 * 0.8 + 2.7 * 2.7) * S2;
+    const Iy = MASS / 12 * (1.7 * 1.7 + 2.7 * 2.7) * S2;
+    const Iz = MASS / 12 * (1.7 * 1.7 + 0.8 * 0.8) * S2;
     this.Ibody = new THREE.Vector3(Ix, Iy, Iz);
 
     /* ---- 车轮 ---- */
     this.wheels = [];
     for (let a = 0; a < 3; a++) for (const s of [-1, 1]) {
       this.wheels.push({
-        mount: new THREE.Vector3(s * HALF_TRACK, 0.10, AXLE_Z[a]),
+        mount: new THREE.Vector3(s * HALF_TRACK, 0.10, AXLE_Z[a]).multiplyScalar(ROVER_SCALE),
         side: s, axle: a,
         steer: 0, targetSteer: 0,
         spin: 0, spinVel: 0,
@@ -584,11 +592,22 @@ export class Rover {
      ============================================================ */
   placeAt(x, z, yaw = 0) {
     const h = this.terrain.heightAt(x, z);
-    this.pos.set(x, h + 0.95, z);
+    this.pos.set(x, h + 0.95 * ROVER_SCALE, z);
     this.quat.setFromAxisAngle(_up, yaw);
     this.vel.set(0, 0, 0); this.omega.set(0, 0, 0);
-    for (const w of this.wheels) { w.comp = SUSP_REST * 0.5; w.spinVel = 0; w.lastGround.set(x, h, z); }
+    for (const w of this.wheels) {
+      const probe = w.worldPos.copy(w.mount).applyQuaternion(this.quat).add(this.pos);
+      probe.y -= SR;
+      const ground = this.terrain.heightAt(probe.x, probe.z);
+      w.comp = clamp(ground - (probe.y - WR), -0.02, ST + 0.30 * ROVER_SCALE);
+      w.contact = w.comp > 0;
+      if(w.contact)probe.y = ground + WR;
+      this.terrain.normalAt(probe.x,probe.z,.3,w.normal);
+      w.compVel = 0; w.spinVel = 0; w.load = 0; w.slipLong = 0; w.slipLat = 0;
+      w.lastGround.copy(probe);
+    }
     this.sync();
+    this.updateVisuals(0,{throttle:0,steer:0,brake:1,tc:true});
   }
 
   sync() {
@@ -607,13 +626,13 @@ export class Rover {
   aimPoint(out = this.armTarget) {
     const c = Math.cos(this.armYaw), s = Math.sin(this.armYaw);
     // 臂局部的 (x,z) 偏移，先按臂偏航旋转，再转到世界空间
-    _p1.set(ARM_BASE.x + s * this.armReach, ARM_BASE.y, ARM_BASE.z + c * this.armReach);
+    _p1.set(ARM_BASE.x + s * this.armReach, ARM_BASE.y, ARM_BASE.z + c * this.armReach).multiplyScalar(ROVER_SCALE);
     out.copy(_p1).applyQuaternion(this.quat).add(this.pos);
     const gh = this.terrain.heightAt(out.x, out.z);
     out.y = gh;
     // 相对肩关节的垂直落差，沿底盘自身的上方向量测
-    _p2.set(ARM_BASE.x, ARM_BASE.y, ARM_BASE.z).applyQuaternion(this.quat).add(this.pos);
-    this.armDrop = out.y - _p2.y;
+    _p2.set(ARM_BASE.x, ARM_BASE.y, ARM_BASE.z).multiplyScalar(ROVER_SCALE).applyQuaternion(this.quat).add(this.pos);
+    this.armDrop = (out.y - _p2.y) / ROVER_SCALE;   // IK 在模型本地单位里解
     return out;
   }
 
@@ -622,7 +641,7 @@ export class Rover {
   get flipped() { return this.up.y < 0.18; }
   /** 最高速下的轮毂转速 —— 电机音色以它为归一化基准，
       这样音色会自动跟着行驶包线走。 */
-  get spinRef() { return DRIVE.maxSpeed / WHEEL_R; }
+  get spinRef() { return DRIVE.maxSpeed / WR; }
 
   /* ============================================================
      物理
@@ -663,19 +682,19 @@ export class Rover {
       const down = _p2.copy(up).multiplyScalar(-1);
 
       // 垂直探测：悬挂完全伸出时轮心会落在哪
-      const probe = _p3.copy(mount).addScaledVector(down, SUSP_REST);
+      const probe = _p3.copy(mount).addScaledVector(down, SR);
       const gh = terrain.heightAt(probe.x, probe.z);
       terrain.normalAt(probe.x, probe.z, 0.30, w.normal);
 
       // 压缩量 = 地面把轮子沿支柱顶上去多少
-      const bottom = probe.y - WHEEL_R;
+      const bottom = probe.y - WR;
       let comp = (gh - bottom);
-      comp = clamp(comp, -0.02, SUSP_TRAVEL + 0.30);
+      comp = clamp(comp, -0.02, ST + 0.30 * ROVER_SCALE);
       const wasContact = w.contact;
       w.contact = comp > 0;
 
       // 用于渲染的轮心
-      const centreY = w.contact ? gh + WHEEL_R : probe.y;
+      const centreY = w.contact ? gh + WR : probe.y;
       w.worldPos.set(probe.x, centreY, probe.z);
 
       const compVel = (comp - w.comp) / dt;
@@ -690,7 +709,7 @@ export class Rover {
       contacts++;
 
       /* ---- 悬挂 ---- */
-      const over = Math.max(0, comp - SUSP_TRAVEL);            // 限位块
+      const over = Math.max(0, comp - ST);            // 限位块
       let fs = SUSP_K * comp + SUSP_C * clamp(compVel, -6, 6) + over * over * 400000;
       fs = clamp(fs, 0, 40000);
       const fN = _p4.copy(up).multiplyScalar(fs);
@@ -707,7 +726,7 @@ export class Rover {
       const wr = _p8.crossVectors(w.normal, wf).normalize();
 
       // 接触点速度 = v + ω × r
-      const cp = _p9.copy(rArm).addScaledVector(up, -(SUSP_REST - comp));
+      const cp = _p9.copy(rArm).addScaledVector(up, -(SR - comp));
       const cv = _p10.copy(this.vel).add(_p11.crossVectors(this.omega, cp));
       const vLong = cv.dot(wf), vLat = cv.dot(wr);
 
@@ -719,7 +738,7 @@ export class Rover {
          火星风化层的承载强度和月面同量级，但整车重了一倍多，
          所以同样的公式在这里会自然算出更深的下陷 —— 这是对的，
          不需要额外改系数。 */
-      const pressure = fs / (WHEEL_W * 0.42);                  // 接触斑的 N/m²
+      const pressure = fs / (WW * 0.42);                  // 接触斑的 N/m²
       w.sink = 0.10 * clamp(pressure / 12000, 0, 1);
       const rr = (0.045 + w.sink * 1.2) * fs;
 
@@ -737,7 +756,7 @@ export class Rover {
       if (pivot > 0.01) throttleT += w.side * Math.sign(ctl.steer) * MOTOR_TORQUE * this.powerScale * 0.78 * pivot;
       // 牵引力控制：在轮子把自己刨进去之前先收扭矩
       if (ctl.tc) {
-        const excess = Math.abs(w.spinVel * WHEEL_R - vLong) - DRIVE.maxSpeed * 0.107;
+        const excess = Math.abs(w.spinVel * WR - vLong) - DRIVE.maxSpeed * 0.107;
         if (excess > 0) throttleT *= Math.max(0.15, 1 - excess * 0.85);
       }
       /* ---- 坡道驻车 ----
@@ -752,9 +771,9 @@ export class Rover {
          轮子的转动惯量很小，滑移刚度很大，显式积分会先震荡再炸掉。
          直接把新的轮速解出来，在任何步长下都无条件稳定。 */
       const aT = (throttleT - brakeT) / WHEEL_I;
-      const denom = 1 + dt * K_SLIP * WHEEL_R * WHEEL_R / WHEEL_I;
-      let spinNew = (w.spinVel + dt * aT + dt * K_SLIP * WHEEL_R * vLong / WHEEL_I) / denom;
-      let slipV = spinNew * WHEEL_R - vLong;
+      const denom = 1 + dt * K_SLIP * WR * WR / WHEEL_I;
+      let spinNew = (w.spinVel + dt * aT + dt * K_SLIP * WR * vLong / WHEEL_I) / denom;
+      let slipV = spinNew * WR - vLong;
       let fx = K_SLIP * slipV;
       let fy = clamp(-vLat * K_LAT, -maxF * 1.2, maxF * 1.2);
 
@@ -763,11 +782,11 @@ export class Rover {
       if (fmag > maxF) {
         const k = maxF / fmag; fx *= k; fy *= k;
         // 力被削顶了，轮子于是可以空转起来：重新积分一次
-        spinNew = w.spinVel + dt * (aT - fx * WHEEL_R / WHEEL_I);
-        slipV = spinNew * WHEEL_R - vLong;
+        spinNew = w.spinVel + dt * (aT - fx * WR / WHEEL_I);
+        slipV = spinNew * WR - vLong;
       }
       if (brakeCmd > 0.5 && Math.abs(spinNew) < 0.7) spinNew *= 0.5;
-      w.spinVel = clamp(spinNew, -DRIVE.maxSpeed / WHEEL_R * 1.6, DRIVE.maxSpeed / WHEEL_R * 1.6);
+      w.spinVel = clamp(spinNew, -DRIVE.maxSpeed / WR * 1.6, DRIVE.maxSpeed / WR * 1.6);
       w.spin += w.spinVel * dt;
 
       // 滚阻永远与运动方向相反
@@ -822,7 +841,7 @@ export class Rover {
 
     /* ---- 硬地板：绝不让车身穿过地面 ---- */
     const bh = terrain.heightAt(this.pos.x, this.pos.z);
-    const minY = bh + 0.30;
+    const minY = bh + 0.30 * ROVER_SCALE;
     if (this.pos.y < minY) {
       const pen = minY - this.pos.y;
       this.pos.y = minY;
@@ -856,7 +875,7 @@ export class Rover {
     if (this.armDeploy > 0.02) this.aimPoint();
     for (const w of this.wheels) {
       // 把轮子位置换算回车身坐标系
-      const local = _p1.copy(w.worldPos).sub(this.pos).applyQuaternion(_q1.copy(q).invert());
+      const local = _p1.copy(w.worldPos).sub(this.pos).applyQuaternion(_q1.copy(q).invert()).divideScalar(ROVER_SCALE);
       w.obj.position.copy(local);
       w.obj.rotation.set(0, 0, 0);
       w.obj.rotateY(w.steer);
@@ -865,20 +884,7 @@ export class Rover {
       w.local = (w.local || new THREE.Vector3()).copy(local);
     }
 
-    /* ---- 在真实关节之间把连杆画出来 ---- */
-    for (const L of this.links) {
-      const wf = this.wheels.find(w => w.side === L.side && w.axle === 0).local;
-      const wm = this.wheels.find(w => w.side === L.side && w.axle === 1).local;
-      const wr = this.wheels.find(w => w.side === L.side && w.axle === 2).local;
-      // 转向架销悬在后两轮中点的上方
-      _bog.copy(wm).add(wr).multiplyScalar(0.5); _bog.y += 0.30;
-      L.bogiePin.position.copy(_bog);
-      span(L.stub, _tmpA.set(L.side * 0.58, 0.44, 0.16), L.anchor);
-      span(L.rocker, L.anchor, wf);
-      span(L.strut, L.anchor, _bog);
-      span(L.bogieF, _bog, wm);
-      span(L.bogieR, _bog, wr);
-    }
+    this.drawLinks();
 
     // 桅杆跟着操作员的视线转
     this.mast.rotation.y = this.mastYaw;
@@ -926,6 +932,34 @@ export class Rover {
     this.rtgGlow.material.opacity = 0.075 + 0.035 * Math.sin(performance.now() * 0.0013);
     this.beacon.visible = (performance.now() % 1400) < 130;
     void ctl;
+  }
+
+  /* 运输构型：六轮收到平地静载位置（与地形无关），装货前量包围盒、运输途中保持这个姿态。
+     不这样做的话，停在不平处时悬空的轮子会伸到行程底，整车高度忽大忽小。 */
+  stowWheels() {
+    for (const w of this.wheels) {
+      const local = new THREE.Vector3(w.side * HALF_TRACK, 0.10 - SUSP_REST + 0.10, AXLE_Z[w.axle]);
+      w.obj.position.copy(local); w.obj.rotation.set(0, 0, 0); w.steer = 0;
+      w.local = (w.local || new THREE.Vector3()).copy(local);
+    }
+    this.drawLinks();
+  }
+
+  /* ---- 在真实关节之间把连杆画出来 ---- */
+  drawLinks() {
+    for (const L of this.links) {
+      const wf = this.wheels.find(w => w.side === L.side && w.axle === 0).local;
+      const wm = this.wheels.find(w => w.side === L.side && w.axle === 1).local;
+      const wr = this.wheels.find(w => w.side === L.side && w.axle === 2).local;
+      // 转向架销悬在后两轮中点的上方
+      _bog.copy(wm).add(wr).multiplyScalar(0.5); _bog.y += 0.30;
+      L.bogiePin.position.copy(_bog);
+      span(L.stub, _tmpA.set(L.side * 0.58, 0.44, 0.16), L.anchor);
+      span(L.rocker, L.anchor, wf);
+      span(L.strut, L.anchor, _bog);
+      span(L.bogieF, _bog, wm);
+      span(L.bogieR, _bog, wr);
+    }
   }
 }
 

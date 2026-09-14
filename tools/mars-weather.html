@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>COSMOS — 火星气象视角</title>
+<style>
+:root{
+  --bg:#03060a; --panel:#060b11; --line:#141e28; --line2:#1f2c3a;
+  --cyan:#22d3ee; --green:#34d399; --amber:#f5a524; --red:#ff5b5b; --mag:#ff4fd8;
+  --text:#c7d2dc; --hi:#e8eef4; --dim:#5d6d7d;
+  --mono:"JetBrains Mono","SF Mono",Menlo,Consolas,"PingFang SC","Hiragino Sans GB","Noto Sans SC",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:12px/1.45 var(--mono);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,select{font:inherit;color:var(--text);background:#070d13;border:1px solid var(--line2);border-radius:3px;cursor:pointer;padding:5px 9px;touch-action:manipulation}
+button.on{color:var(--cyan);border-color:var(--cyan);background:rgba(34,211,238,.08)}
+#app{height:100vh;height:100dvh;display:grid;grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:34px minmax(0,1fr) auto;
+  grid-template-areas:"hdr hdr" "map side" "time side";gap:1px;background:var(--line);
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#app > *{background:var(--bg);min-width:0;min-height:0}
+.bar{grid-area:hdr;display:flex;align-items:center;gap:22px;padding:0 14px;font-weight:700;white-space:nowrap;overflow:hidden;background:#02050a}
+.bar .brand{color:var(--cyan)} .bar .num{color:var(--amber)} .bar .right{margin-left:auto;color:var(--dim);font-weight:400}
+.map{grid-area:map;position:relative;overflow:hidden}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:manipulation}
+.readout{position:absolute;left:10px;top:10px;font-size:10.5px;color:var(--dim);background:rgba(3,7,11,.82);padding:3px 7px;border-radius:2px;white-space:nowrap;max-width:calc(100% - 20px);overflow:hidden;text-overflow:ellipsis}
+.readout b{color:var(--hi);font-weight:400}
+.legend{position:absolute;left:10px;bottom:10px;display:flex;gap:12px;font-size:10px;color:var(--dim);background:rgba(3,7,11,.82);padding:4px 8px;border-radius:2px;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+#busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(3,6,10,.94);color:var(--cyan);letter-spacing:.14em;text-align:center;padding:20px}
+#busy[hidden]{display:none}
+
+.time{grid-area:time;display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px 16px;align-items:center;padding:8px 12px;background:#02050a}
+.play{display:flex;gap:6px}
+.play button{width:40px;height:34px;padding:0;font-size:14px}
+.slider{display:flex;flex-direction:column;gap:2px;min-width:0}
+.slider span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim);font-size:10.5px}
+.slider b{color:var(--hi)}
+input[type=range]{width:100%;accent-color:var(--cyan);height:22px}
+.scen{grid-column:1 / -1;display:flex;gap:6px;flex-wrap:wrap}
+.scen button{min-height:32px}
+
+.side{grid-area:side;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:10px}
+.box{background:var(--panel);border:1px solid var(--line2);border-radius:3px;padding:9px 11px}
+.box h2{margin:0 0 7px;font-size:10.5px;color:var(--dim);font-weight:400;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.box h2 b{color:var(--hi);font-weight:700}
+.box h2 button{padding:2px 8px;font-size:10.5px}
+#chart{width:100%;height:150px;display:block}
+.list{list-style:none;margin:0;padding:0}
+.list li{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-top:1px solid var(--line);cursor:pointer}
+.list li:first-child{border-top:0}
+.list li.on{background:rgba(255,79,216,.06)}
+.list li i{width:10px;height:10px;border-radius:50%}
+.list b{color:var(--hi)} .list small{display:block;color:var(--dim);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list span{white-space:nowrap;color:var(--text);font-variant-numeric:tabular-nums}
+.list li.empty{display:block;color:var(--dim);font-size:11px;padding:4px 0;cursor:default}
+details{font-size:11px;color:var(--dim)}
+details summary{cursor:pointer;color:var(--text)}
+pre{margin:8px 0 0;padding:8px;background:#02050a;border:1px solid var(--line);border-radius:3px;overflow-x:auto;font:10.5px/1.5 var(--mono);color:#a8c4ce}
+.fine{margin:0;font-size:9.5px;color:var(--dim);line-height:1.55}
+
+@media (max-width:899px){
+  html,body{overflow:auto}
+  #app{height:auto;min-height:100dvh;grid-template-columns:minmax(0,1fr);grid-template-rows:34px auto auto auto;grid-template-areas:"hdr" "map" "time" "side"}
+  .map{aspect-ratio:2 / 1}
+  .bar{gap:12px;padding:0 10px} .bar .opt{display:none}
+  .time{grid-template-columns:minmax(0,1fr)}
+  .readout{top:auto;bottom:6px}
+  .side{overflow:visible}
+  .legend{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <span class="brand">COSMOS // MET VIEW</span>
+    <span class="opt">火星气象视角</span>
+    <span>SOL <span class="num" id="hSol">—</span></span>
+    <span class="opt" id="hSeason">—</span>
+    <span>系统 <span class="num" id="hStorms">—</span></span>
+    <span class="right opt">游戏模拟 · 非天气预报</span>
+  </header>
+
+  <section class="map">
+    <canvas id="cv" aria-label="火星全球天气图：点击任意位置查看当地天气"></canvas>
+    <div class="readout" id="readout">点击地图查看当地天气</div>
+    <div class="legend"><span><i style="background:#e2803e"></i>尘暴</span><span><i style="background:#d6ecff"></i>冰云气旋</span><span><i style="background:#02060f;border:1px solid #33475a"></i>夜间</span><span><i style="background:#34d399;border-radius:1px"></i>营地</span><span>☀ 太阳直射点</span></div>
+    <div id="busy">正在解码 MOLA 高程…</div>
+  </section>
+
+  <section class="time" aria-label="时间与情景">
+    <div class="play"><button id="bPlay" aria-label="播放时间">▶</button>
+      <select id="speed" aria-label="播放速度"><option value="1200">1 sol / 20 min（游戏节奏）</option><option value="60" selected>1 sol / 60 s</option><option value="8">1 sol / 8 s</option></select></div>
+    <label class="slider"><span>SOL <b id="solVal">—</b> · <span id="lsVal">—</span></span><input type="range" id="sol" min="0" max="668" step="1" aria-label="火星日"></label>
+    <label class="slider"><span>营地当地时间 LMST <b id="lmstVal">—</b></span><input type="range" id="day" min="0" max="0.999" step="0.001" aria-label="营地当地时间"></label>
+    <div class="scen" role="group" aria-label="天气情景"></div>
+  </section>
+
+  <aside class="side">
+    <div id="cardHost"></div>
+    <div class="box"><h2><span><b>昼夜曲线</b> · 选点</span><button id="bCamp">回到营地</button></h2><canvas id="chart" aria-label="选点一个火星日的气温、地温与光伏可用度"></canvas></div>
+    <div class="box"><h2><span><b>当地现象</b></span></h2><ul class="list" id="phen"></ul></div>
+    <div class="box"><h2><span><b>活跃天气系统</b> · 距选点</span><span id="stormCount"></span></h2><ul class="list" id="storms"></ul></div>
+    <div class="box">
+      <details><summary>组件调用方式（给其他界面用）</summary>
+<pre>import { createMarsWeather } from '../src/weather/mars-weather.js';
+import { mountWeatherCard, drawStormLayer } from '../src/weather/weather-widgets.js';
+
+const wx = createMarsWeather({ seed: 1, elevationKm });
+const time = { sol, dayFraction, refLon };   // 调用方自己的时钟
+const card = mountWeatherCard(hudEl, { compact: true });
+card.update(wx.sample(lat, lon, time));       // HUD 天气卡
+wx.route(waypoints, time).crossings;          // 航线穿越哪些尘暴
+drawStormLayer(ctx, wx.storms(time), { toScreen, pxPerDeg, width, height });</pre>
+      </details>
+      <p class="fine" style="margin-top:8px">量级依据真实观测：τ 平时 0.3–0.9、全球尘暴 4–10；光伏按 exp(-0.3τ)；气压按海盗1号/好奇号实测反推并含季节变化；尘暴路径、北极冰云气旋、峡谷晨雾、火山山地云、午后尘卷风为真实现象的简化。风暴出现时间和位置是确定性随机，不是预报。</p>
+    </div>
+  </aside>
+</div>
+
+<script src="../data/mola_4ppd.js"></script>
+<script type="module">
+import { createMarsWeather, seasonOf, lsFromSol, lmst, localFraction, subsolarPoint, distanceKm, bearingDeg, SCENARIOS } from '../src/weather/mars-weather.js';
+import { mountWeatherCard, drawStormLayer, nightShadeCanvas, drawDiurnalChart, HAZARD_COLORS } from '../src/weather/weather-widgets.js';
+import { decodeMola, shadedReliefCanvas } from '../src/lib/mola-grid.js';
+
+const $ = s => document.querySelector(s);
+const KEY = 'cosmos.weather.view.v1';
+const CAMP = { lat: -13.4, lon: 300.6, title: '先遣营地 · 科普剌忒斯峡谷', camp: true };
+const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono');
+const fmtLat = v => `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'N' : 'S'}`, fmtLon = v => `${(((v % 360) + 360) % 360).toFixed(1)}°E`;
+const KIND = { frontal: ['锋面尘暴', '#e2803e'], regional: ['区域尘暴', '#e2803e'], polar: ['冰云气旋', '#d6ecff'], global: ['全球尘暴', '#c4703a'] };
+
+const state = (() => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && Number.isFinite(s.sol)) return { sol: s.sol, dayFraction: s.dayFraction ?? .55, scenario: SCENARIOS[s.scenario] ? s.scenario : 'auto', seed: s.seed || 1 }; } catch {} return { sol: 454, dayFraction: .55, scenario: 'auto', seed: 1 }; })();
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ ...state, refLon: CAMP.lon })); } catch {} };
+const time = () => ({ sol: state.sol, dayFraction: state.dayFraction, refLon: CAMP.lon });
+
+let mola = null, base = null, weather = null, sel = { ...CAMP }, highlight = null, playing = false, shade = null, shadeKey = '';
+const cv = $('#cv'), card = mountWeatherCard($('#cardHost'), { title: CAMP.title });
+let cw = 0, ch = 0, dpr = 1, rect = { x: 0, y: 0, w: 0, h: 0, ppd: 1 };
+
+function layout() {
+  const r = cv.getBoundingClientRect(); dpr = Math.min(2, devicePixelRatio || 1);
+  cw = r.width; ch = r.height; cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+  const w = Math.min(cw, ch * 2), h = w / 2; rect = { x: (cw - w) / 2, y: (ch - h) / 2, w, h, ppd: w / 360 };
+}
+function toScreen(lat, lon) {
+  const x = rect.x + ((((lon % 360) + 360) % 360) * rect.ppd), y = rect.y + (90 - lat) * rect.ppd;
+  return [[x, y], [x - rect.w, y], [x + rect.w, y]];
+}
+function screenToGeo(sx, sy) {
+  if (sx < rect.x || sx > rect.x + rect.w || sy < rect.y || sy > rect.y + rect.h) return null;
+  return { lat: 90 - (sy - rect.y) / rect.ppd, lon: (sx - rect.x) / rect.ppd };
+}
+
+function draw(now) {
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#03060a'; g.fillRect(0, 0, cw, ch);
+  if (!weather) return;
+  const T = time();
+  g.save(); g.beginPath(); g.rect(rect.x, rect.y, rect.w, rect.h); g.clip();
+  g.imageSmoothingEnabled = true; g.drawImage(base, rect.x, rect.y, rect.w, rect.h);
+  const key = `${state.sol}|${state.dayFraction.toFixed(3)}`;
+  if (key !== shadeKey) { shade = nightShadeCanvas(T); shadeKey = key; }
+  g.drawImage(shade, rect.x, rect.y, rect.w, rect.h);
+  g.strokeStyle = 'rgba(160,210,230,.1)'; g.lineWidth = 1;
+  for (let lon = 30; lon < 360; lon += 30) { const x = rect.x + lon * rect.ppd; g.beginPath(); g.moveTo(x, rect.y); g.lineTo(x, rect.y + rect.h); g.stroke(); }
+  for (let lat = -60; lat <= 60; lat += 30) { const y = rect.y + (90 - lat) * rect.ppd; g.strokeStyle = lat ? 'rgba(160,210,230,.1)' : 'rgba(160,210,230,.22)'; g.beginPath(); g.moveTo(rect.x, y); g.lineTo(rect.x + rect.w, y); g.stroke(); }
+
+  drawStormLayer(g, weather.storms(T), { toScreen, pxPerDeg: rect.ppd, width: cw, height: ch, spin: now / 1000, highlightId: highlight, font: `10px ${MONO}` });
+
+  for (const [la, lo, label] of [[-8, 285, '雾'], [18.65, 226.2, '云'], [11.8, 255.5, '云'], [1.48, 247, '云'], [-8.35, 239.9, '云']]) {
+    const ph = weather.phenomena(la, lo, T).filter(p => (label === '雾' ? p.kind === 'fog' : p.kind === 'orographic'));
+    if (!ph.length) continue;
+    for (const [x, y] of toScreen(la, lo)) halo(g, label, x, y + 4, 11, label === '雾' ? '#bfe3ff' : '#e8f4ff', 'center');
+  }
+  const sun = subsolarPoint(T);
+  for (const [x, y] of toScreen(sun.lat, sun.lon)) halo(g, '☀', x, y + 5, 15, '#ffd76a', 'center');
+  for (const [x, y] of toScreen(CAMP.lat, CAMP.lon)) { g.fillStyle = '#062016'; g.strokeStyle = '#34d399'; g.lineWidth = 2; g.fillRect(x - 5, y - 5, 10, 10); g.strokeRect(x - 5, y - 5, 10, 10); halo(g, 'CAMP', x + 9, y + 4, 10, '#34d399'); }
+  if (!sel.camp) for (const [x, y] of toScreen(sel.lat, sel.lon)) {
+    g.strokeStyle = '#ff4fd8'; g.lineWidth = 1.6; g.beginPath(); g.arc(x, y, 7, 0, 7); g.moveTo(x - 14, y); g.lineTo(x - 7, y); g.moveTo(x + 7, y); g.lineTo(x + 14, y); g.moveTo(x, y - 14); g.lineTo(x, y - 7); g.moveTo(x, y + 7); g.lineTo(x, y + 14); g.stroke();
+  }
+  g.restore();
+  for (let lon = 0; lon < 360; lon += 60) halo(g, `${lon}°E`, rect.x + lon * rect.ppd + 3, rect.y + 12, 10, 'rgba(160,190,205,.75)');
+  for (const lat of [60, 30, 0, -30, -60]) halo(g, lat ? `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}` : '0°', rect.x + 4, rect.y + (90 - lat) * rect.ppd - 3, 10, 'rgba(160,190,205,.75)');
+}
+function halo(g, t, x, y, px, color, align = 'left') { g.font = `${px}px ${MONO}`; g.textAlign = align; g.lineWidth = 3.5; g.strokeStyle = 'rgba(3,6,10,.9)'; g.strokeText(t, x, y); g.fillStyle = color; g.fillText(t, x, y); }
+
+function refresh() {
+  if (!weather) return;
+  const T = time(), s = weather.sample(sel.lat, sel.lon, T), sum = weather.summary(T), storms = weather.storms(T);
+  card.update(s, { title: sel.title || `${fmtLat(sel.lat)} ${fmtLon(sel.lon)}` });
+  drawDiurnalChart($('#chart'), weather, { lat: sel.lat, lon: sel.lon, time: T, elevationKm: s.elevationKm, dpr });
+  const ph = weather.phenomena(sel.lat, sel.lon, T, s);
+  $('#phen').innerHTML = ph.length ? ph.map(p => `<li><i style="background:${p.kind === 'dustDevils' ? '#f5a524' : '#bfe3ff'}"></i><div><b>${p.label}</b><small>${p.detail}</small></div><span></span></li>`).join('') : '<li class="empty">此时此地没有特别现象</li>';
+  $('#storms').innerHTML = storms.length ? storms.map(st => {
+    const [label, color] = KIND[st.kind];
+    const far = st.kind === 'global' ? '全球' : `${Math.round(distanceKm(sel, st)).toLocaleString('en-US')} km`;
+    const move = st.speedKmSol ? ` · 向 ${String(Math.round(st.heading) % 360).padStart(3, '0')}° ${Math.round(st.speedKmSol)} km/sol` : '';
+    return `<li data-id="${st.id}" class="${st.id === highlight ? 'on' : ''}"><i style="background:${color}"></i><div><b>${st.id}</b> ${st.name}<small>${label} · 半径 ${st.kind === 'global' ? '全球' : Math.round(st.radiusKm) + ' km'} · ${st.iceCloud ? '水冰云' : 'τ峰 ' + st.tauPeak.toFixed(1)}${move} · 剩 ${st.remainingSols.toFixed(1)} sol</small></div><span>${far}</span></li>`;
+  }).join('') : '<li class="empty">当前没有尘暴或气旋</li>';
+  $('#stormCount').textContent = `${storms.length} 个`;
+  $('#hSol').textContent = state.sol; $('#hStorms').textContent = storms.length; $('#hSeason').textContent = `Ls ${Math.round(sum.ls)}° · ${sum.season.label}`;
+  $('#solVal').textContent = state.sol; $('#lsVal').textContent = `Ls ${Math.round(sum.ls)}° · ${sum.season.label}`;
+  $('#lmstVal').textContent = lmst(state.dayFraction);
+  $('#sol').value = state.sol; $('#day').value = state.dayFraction;
+  document.querySelectorAll('[data-scen]').forEach(b => b.classList.toggle('on', b.dataset.scen === state.scenario));
+  save();
+}
+
+$('.scen').innerHTML = Object.entries(SCENARIOS).map(([k, v]) => `<button data-scen="${k}">${v}</button>`).join('');
+$('.scen').addEventListener('click', e => { const k = e.target.closest('[data-scen]')?.dataset.scen; if (!k || !weather) return; state.scenario = weather.setScenario(k); highlight = null; refresh(); });
+$('#sol').addEventListener('input', e => { state.sol = +e.target.value; refresh(); });
+$('#day').addEventListener('input', e => { state.dayFraction = +e.target.value; refresh(); });
+$('#bPlay').addEventListener('click', () => { playing = !playing; $('#bPlay').textContent = playing ? '❚❚' : '▶'; $('#bPlay').setAttribute('aria-label', playing ? '暂停' : '播放时间'); });
+$('#bCamp').addEventListener('click', () => { sel = { ...CAMP }; highlight = null; refresh(); });
+$('#storms').addEventListener('click', e => {
+  const id = e.target.closest('li[data-id]')?.dataset.id, st = id && weather.storms(time()).find(s => s.id === id); if (!st) return;
+  highlight = id; sel = st.kind === 'global' ? { ...CAMP } : { lat: st.lat, lon: st.lon, title: `${st.id} 中心` }; refresh();
+});
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect(), p = screenToGeo(e.clientX - r.left, e.clientY - r.top); if (!p || !weather) return;
+  const nearCamp = distanceKm(p, CAMP) < 120;
+  sel = nearCamp ? { ...CAMP } : { ...p, title: null };
+  highlight = weather.sample(sel.lat, sel.lon, time()).storm?.inside ? weather.sample(sel.lat, sel.lon, time()).storm.id : null;
+  refresh();
+});
+cv.addEventListener('pointermove', e => {
+  if (!weather) return;
+  const r = cv.getBoundingClientRect(), p = screenToGeo(e.clientX - r.left, e.clientY - r.top); if (!p) return;
+  const s = weather.sample(p.lat, p.lon, time());
+  $('#readout').innerHTML = `<b>${fmtLat(p.lat)} ${fmtLon(p.lon)}</b> · 高程 <b>${s.elevationKm.toFixed(1)} km</b> · τ <b>${s.tau.toFixed(2)}</b> · LMST <b>${s.lmst}</b> · 距营地 <b>${Math.round(distanceKm(p, CAMP)).toLocaleString('en-US')} km</b>`;
+});
+
+let last = performance.now(), lastPanel = 0;
+function loop(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (playing && weather) {
+    state.dayFraction += dt / +$('#speed').value;
+    if (state.dayFraction >= 1) { state.dayFraction -= 1; state.sol = (state.sol + 1) % 669; }
+    if (now - lastPanel > 250) { lastPanel = now; refresh(); }
+  }
+  draw(now);
+  requestAnimationFrame(loop);
+}
+new ResizeObserver(() => { layout(); if (weather) refresh(); }).observe(cv);
+
+setTimeout(() => {
+  try {
+    mola = decodeMola(window.MOLA); base = shadedReliefCanvas(mola);
+    weather = createMarsWeather({ seed: state.seed, scenario: state.scenario, elevationKm: mola.elevationKm });
+    $('#busy').hidden = true; layout(); refresh();
+  } catch (err) { $('#busy').textContent = `无法加载地形：${err.message}`; }
+  requestAnimationFrame(loop);
+}, 30);
+</script>
+</body>
+</html>

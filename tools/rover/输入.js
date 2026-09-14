@@ -25,7 +25,7 @@
    ============================================================ */
 
 const 行驶键 = ['w', 'a', 's', 'd', ' ', 'shift', 'control',
-  'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e'];
+  'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'z'];
 
 /**
  * @param {Window|HTMLElement} target 键盘监听挂在哪
@@ -105,7 +105,7 @@ export function makeDriveInput(target = window, opts = {}) {
       if (k === ' ' || k.startsWith('arrow')) e.preventDefault();
     }
     if (e.repeat) return;
-    if (k === 't') ctl.tc = !ctl.tc;
+    if (k === 'y') ctl.tc = !ctl.tc;
     if (k === 'c') camHit = true;
   };
   // 即使焦点已进输入框，松键也必须释放之前按住的油门。
@@ -272,12 +272,12 @@ export function makeDriveInput(target = window, opts = {}) {
         cur + (want - cur) * Math.min(1, dt * (Math.abs(want) > Math.abs(cur) ? upR : dnR));
       ctl.throttle = rate(ctl.throttle, wantT, 3.2, 6.0);
       ctl.steer = rate(ctl.steer, wantS, 5.0, 9.0);
-      ctl.brake = has(' ', 'shift') ? 1 : 0;
+      ctl.brake = (opts.flight ? has(' ') : has(' ', 'shift')) ? 1 : 0;
 
       ctl.lookX = accX; ctl.lookY = accY; ctl.zoom = accZoom;
       ctl.looking = moved;
-      ctl.up = has('e', ' ');            // 自由机位升降；空格在那边不是刹车
-      ctl.down = has('q', 'control');
+      ctl.up = has(opts.flight ? 'e' : 'q');            // 自由机位升降；空格在那边不是刹车
+      ctl.down = has(opts.flight ? 'q' : 'z');
       ctl.boost = has('shift');
       ctl.camCycle = camHit;
 

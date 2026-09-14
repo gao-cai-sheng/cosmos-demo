@@ -7,11 +7,13 @@ export const CARGO = [
   {id:'build',name:'建造与维修',code:'03',x:0,z:18,items:[['压力帐篷套件','1 套'],['初始充舱气 / 备用气','各 1 份'],['提取机 / 净化器','各 1 套'],['提取 / 净化耗材','各 20 批'],['流体管线','40 m'],['维修包','4 份']]},
 ];
 export const REFUGE = {x:2,z:-2};
-export function freshState(){return {version:1,power:freshPower(),suit:[],cargo:[],refuge:false,departed:false,returned:false,environment:'inside',player:{x:0,z:-2,heading:0,firstPerson:true}};}
+export function freshState(){return {version:1,power:freshPower(),delivery:{landed:false},suit:[],cargo:[],refuge:false,departed:false,returned:false,environment:'inside',player:{x:0,z:-2,heading:0,firstPerson:true}};}
 const validList=(value,ids)=>[...new Set(Array.isArray(value)?value.filter(x=>ids.includes(x)):[])];
 export function normalize(raw){
   const s=freshState(); if(!raw||raw.version!==1)return s;
   s.suit=validList(raw.suit,SUIT.map(x=>x[0]));s.cargo=validList(raw.cargo,CARGO.map(x=>x.id));
+  const legacyProgress=s.cargo.length>0||raw.power?.started===true;
+  s.delivery={landed:raw.delivery?.landed===true||(!raw.delivery&&legacyProgress)};
   s.refuge=raw.refuge===true;s.departed=raw.departed===true;s.returned=s.departed&&raw.returned===true;
   s.environment=raw.environment==='outside'?'outside':'inside';
   const p=raw.player;
@@ -23,15 +25,16 @@ export function normalize(raw){
   s.power=complete(s)?normalizePower(raw.power):freshPower();
   return s;
 }
-export function complete(s){return s.suit.length===SUIT.length&&s.cargo.length===CARGO.length&&s.refuge&&s.departed&&s.returned;}
+export function complete(s){return s.delivery?.landed===true&&s.suit.length===SUIT.length&&s.cargo.length===CARGO.length&&s.refuge&&s.departed&&s.returned;}
 export function applyAction(state,action){
   const s=normalize(state),near=(p,d=3)=>Math.hypot(s.player.x-p.x,s.player.z-p.z)<=d;
   if(action.type==='suit'&&SUIT.some(x=>x[0]===action.id))s.suit=validList([...s.suit,action.id],SUIT.map(x=>x[0]));
-  if(action.type==='cargo'&&s.environment==='outside'){
+  if(action.type==='land-supplies'&&s.environment==='inside'&&s.suit.length===SUIT.length&&s.refuge)s.delivery.landed=true;
+  if(action.type==='cargo'&&s.environment==='outside'&&s.delivery.landed){
     const c=CARGO.find(x=>x.id===action.id);if(c&&near(c))s.cargo=validList([...s.cargo,c.id],CARGO.map(x=>x.id));
   }
   if(action.type==='refuge'&&s.environment==='inside'&&near(REFUGE))s.refuge=true;
-  if(action.type==='exit'&&s.environment==='inside'&&near({x:0,z:0},2.8)&&s.suit.length===4){s.environment='outside';s.departed=true;s.player={x:0,z:7,heading:0,firstPerson:false};}
+  if(action.type==='exit'&&s.environment==='inside'&&near({x:0,z:0},2.8)&&s.suit.length===4&&s.delivery.landed){s.environment='outside';s.departed=true;s.player={x:0,z:7,heading:0,firstPerson:false};}
   if(action.type==='enter'&&s.environment==='outside'&&near({x:0,z:6},2.8)){s.environment='inside';s.returned=s.departed;s.player={x:0,z:-.5,heading:Math.PI,firstPerson:true};}
   return s;
 }

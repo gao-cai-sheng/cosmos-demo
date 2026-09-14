@@ -1,4 +1,5 @@
 // One small save file follows the player through the existing static scenes.
+import { geoToLocal, localToGeo } from './route.js';
 export const SAVE_KEY = 'cosmos.mars.journey.v1';
 export const SETTINGS_KEY = 'cosmos.mars.settings.v1';
 export const SURVEY_IDS = ['soil', 'power', 'comms'];
@@ -71,6 +72,14 @@ export function startJourney(site = DEFAULT_SITE) {
 export function updateJourney(patch) {
   const current = getJourney() || startJourney();
   return write({ ...current, ...patch, version: 1, startedAt: current.startedAt, updatedAt: Date.now() });
+}
+
+/** The delivery pod lands once, at the mission's first landing site (the default valley without a landed mission).
+ * `offset` is its local position in that site's scene; returns where it stands in the scene centred on `site`,
+ * or position null when it is farther than `rangeM` (another landing site). */
+export function deliveryPod(site, offset, rangeM, state = getJourney()) {
+  const home = state?.landed ? state.site : DEFAULT_SITE, p = geoToLocal(localToGeo(offset, home), site);
+  return { home, position: Math.hypot(p.x, p.z) <= rangeM ? p : null };
 }
 
 export function storageAvailable() { return storageOK; }

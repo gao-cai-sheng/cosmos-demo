@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 const socket=(kind,position,quaternion=[0,0,0,1])=>({kind,parent:'root',position,quaternion,mate:'opposed-forward',positionTolerance:.001,angleToleranceDeg:.5});
-export const SPEC={schema:'threejs-artifact@0.2',name:'atlas-carrier',version:'1.0.0',unit:'m',up:[0,1,0],forward:[0,0,1],datum:'tyre-contact-plane',seed:260906,canonicalState:'sealed',initialState:'sealed',bounds:{min:[-2.75,0,-4.9],max:[2.75,6.2,4.9],w:5.5,h:6.2,d:9.8,state:'sealed',lod:0,relativeTolerance:.02,absoluteFloor:.001},boundsByState:{},sockets:{'dock.rover':socket('dock',[0,1.4,-2.4],[0,1,0,0]),'mount.driver':socket('mount',[-.8,2.25,1.7]),'hull.entry':socket('hull',[-1.96,1.4,1],[0,-Math.SQRT1_2,0,Math.SQRT1_2])},materialSlots:['armor','structure','rubber','glass','interior','light'],states:{sealed:{parts:{ramp:0},roof:true},open:{parts:{ramp:-1.958},roof:true},cutaway:{parts:{ramp:-1.958},roof:false}},articulation:[{part:'ramp',type:'rotation',axis:[1,0,0],unit:'rad',range:[-1.958,0],rest:0}],allowedContacts:[{assembly:'wheel.*',purpose:'tread and concentric hub assembly',tolerance:.08},{assembly:'cab',purpose:'bonded frame, glazing, interior supports',tolerance:.12},{assembly:'chassis',purpose:'bolted chassis members',tolerance:.12},{assembly:'cargo',purpose:'shell fasteners and rails',tolerance:.08},{assembly:'ramp',purpose:'hinge and tread mounting',tolerance:.08}],lods:[{id:0,note:'full delivery geometry',measuredTriangles:null,budget:{maxTriangles:100000,maxDrawCalls:320}}],collider:{kind:'compound',state:'sealed',parts:[{name:'body',kind:'box',size:[3.92,3.9,8.9],position:[0,3.25,0]},{name:'wheel-zone',kind:'box',size:[5.5,2.2,8.5],position:[0,1.1,-.1]},{name:'ramp',parent:'ramp',kind:'box',size:[3.46,3.55,.12],position:[0,1.775,0]}],dynamicParts:['ramp']},interaction:{volume:{kind:'box',size:[4,4,4],position:[0,2,-6]},anchor:'dock.rover',prompt:'打开货舱 / 装卸探测车'},cargo:{min:[-1.75,1.4,-4.4],max:[1.75,5,-.4]},detailFocus:{socket:'mount.driver',radius:1},grazingAzimuthDeg:60,generatedTextures:[],deviations:[]};
+export const SPEC={schema:'threejs-artifact@0.2',name:'atlas-carrier',version:'1.0.0',unit:'m',up:[0,1,0],forward:[0,0,1],datum:'tyre-contact-plane',seed:260906,canonicalState:'sealed',initialState:'sealed',bounds:{min:[-2.75,0,-7.9],max:[2.75,6.2,4.9],w:5.5,h:6.2,d:12.8,state:'sealed',lod:0,relativeTolerance:.02,absoluteFloor:.001},boundsByState:{},sockets:{'dock.rover':socket('dock',[0,1.4,-5.4],[0,1,0,0]),'mount.driver':socket('mount',[-.8,2.25,1.7]),'hull.entry':socket('hull',[-1.96,1.4,1],[0,-Math.SQRT1_2,0,Math.SQRT1_2])},materialSlots:['armor','structure','rubber','glass','interior','light'],states:{sealed:{parts:{ramp:0},roof:true},open:{parts:{ramp:-1.958},roof:true},cutaway:{parts:{ramp:-1.958},roof:false}},articulation:[{part:'ramp',type:'rotation',axis:[1,0,0],unit:'rad',range:[-1.958,0],rest:0}],allowedContacts:[{assembly:'wheel.*',purpose:'tread and concentric hub assembly',tolerance:.08},{assembly:'cab',purpose:'bonded frame, glazing, interior supports',tolerance:.12},{assembly:'chassis',purpose:'bolted chassis members',tolerance:.12},{assembly:'cargo',purpose:'shell fasteners and rails',tolerance:.08},{assembly:'ramp',purpose:'hinge and tread mounting',tolerance:.08}],lods:[{id:0,note:'full delivery geometry',measuredTriangles:null,budget:{maxTriangles:100000,maxDrawCalls:320}}],collider:{kind:'compound',state:'sealed',parts:[{name:'body',kind:'box',size:[3.92,3.9,11.9],position:[0,3.25,-1.5]},{name:'wheel-zone',kind:'box',size:[5.5,2.2,11.5],position:[0,1.1,-1.6]},{name:'ramp',parent:'ramp',kind:'box',size:[3.46,3.55,.12],position:[0,1.775,0]}],dynamicParts:['ramp']},interaction:{volume:{kind:'box',size:[4,4,4],position:[0,2,-6]},anchor:'dock.rover',prompt:'打开货舱 / 装卸探测车'},cargo:{min:[-1.75,1.4,-7.4],max:[1.75,5,-.4]},roverCargo:{min:[-1.75,1.4,-7.4],max:[1.75,5,-3.2]},detailFocus:{socket:'mount.driver',radius:1},grazingAzimuthDeg:60,generatedTextures:[],deviations:[]};
 function bevelBox(w,h,d,r=.04){
  const g=new THREE.BoxGeometry(w,h,d,3,3,3),p=g.attributes.position,v=new THREE.Vector3(),q=new THREE.Vector3();r=Math.min(r,w/3,h/3,d/3);
  for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i);q.set(THREE.MathUtils.clamp(v.x,-w/2+r,w/2-r),THREE.MathUtils.clamp(v.y,-h/2+r,h/2-r),THREE.MathUtils.clamp(v.z,-d/2+r,d/2-r));v.sub(q).normalize().multiplyScalar(r).add(q);p.setXYZ(i,v.x,v.y,v.z);}g.computeVertexNormals();return g;
@@ -15,10 +15,10 @@ export function create({materials,seed=SPEC.seed,lod=0}){
  const box=(parent,name,size,slot,p,rot)=>add(parent,name,bevelBox(...size),slot,p,rot);
  const rod=(parent,name,a,b,r,slot='structure',segments=12)=>{const p=new THREE.Vector3(...a),q=new THREE.Vector3(...b),m=add(parent,name,new THREE.CylinderGeometry(r,r,p.distanceTo(q),segments),slot,p.add(q).multiplyScalar(.5).toArray());m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),q.sub(new THREE.Vector3(...a)).normalize());return m;};
  // Raised chassis, deck and visible suspension attachment blocks.
- box(chassis,'deck',[3.9,.28,8.9],'structure',[0,1.26,0]);
- for(const x of [-1.2,1.2])box(chassis,'beam',[.22,.35,8.7],'structure',[x,.95,0]);
- for(const z of [-4.72,4.72])box(chassis,'bumper',[3.7,.28,.36],'structure',[0,1.05,z]);
- for(const side of [-1,1])for(const z of [3.2,-.3,-3.6]){
+ box(chassis,'deck',[3.9,.28,11.9],'structure',[0,1.26,-1.5]);
+ for(const x of [-1.2,1.2])box(chassis,'beam',[.22,.35,11.7],'structure',[x,.95,-1.5]);
+ for(const z of [-7.72,4.72])box(chassis,'bumper',[3.7,.28,.36],'structure',[0,1.05,z]);
+ for(const side of [-1,1])for(const z of [3.2,-1.8,-6.6]){
   const wheel=part('wheel.'+Object.keys(parts).filter(k=>k.startsWith('wheel.')).length);wheel.position.set(side*2.25,1.1,z);
   add(wheel,'tyre',new THREE.CylinderGeometry(1.065,1.065,.92,40),'rubber',[0,0,0],[0,0,Math.PI/2]);
   for(const face of [-1,1]){
@@ -35,17 +35,17 @@ export function create({materials,seed=SPEC.seed,lod=0}){
  }
  // Separate cargo wall solids leave a real opening and usable interior volume.
  for(const side of [-1,1]){
-  box(cargo,'side-wall',[.18,3.65,4.05],'armor',[side*1.84,3.225,-2.375]);
-  for(const z of [-3.9,-2.4,-.9]){
+  box(cargo,'side-wall',[.18,3.65,7.05],'armor',[side*1.84,3.225,-3.875]);
+  for(const z of [-6.9,-5.4,-3.9,-2.4,-.9]){
    box(cargo,'panel-frame',[.06,2.8,.10],'structure',[side*1.95,3.25,z]);
    box(cargo,'equipment',[.24,.70,.76],'structure',[side*2.02,3.9,z]);
   }
-  box(cargo,'inner-rail',[.08,.09,3.85],'interior',[side*1.60,1.47,-2.4]);
+  box(cargo,'inner-rail',[.08,.09,6.85],'interior',[side*1.60,1.47,-3.9]);
  }
  box(cargo,'bulkhead',[3.5,3.6,.16],'structure',[0,3.2,-.32]);
- box(roof,'roof',[3.88,.16,4.15],'armor',[0,5.09,-2.375]);
+ box(roof,'roof',[3.88,.16,7.15],'armor',[0,5.09,-3.875]);
  for(const x of [-1.52,1.52]){
-  box(roof,'roof-rail',[.12,.18,3.85],'structure',[x,5.25,-2.4]);
+  box(roof,'roof-rail',[.12,.18,6.85],'structure',[x,5.25,-3.9]);
   add(roof,'filter',new THREE.CylinderGeometry(.20,.25,.55,20),'interior',[x,5.55,-3.6]);
   add(roof,'filter-cap',new THREE.CylinderGeometry(.23,.23,.055,20),'armor',[x,5.855,-3.6]);
   rod(roof,'antenna',[x,5.30,-1.4],[x,6.2,-1.4],.016);
@@ -76,7 +76,9 @@ export function create({materials,seed=SPEC.seed,lod=0}){
   box(cab,'display',[.56,.018,.31],'light',[x,2.295,2.7],[.14,0,0]);
   rod(cab,'control-grip',[x+.3,2.2,2.47],[x+.3,2.45,2.48],.035);
  }
- const ramp=part('ramp');ramp.position.set(0,1.4,-4.62);
+ const supplies=part('starterPack');
+ for(const x of [-.82,.82])for(const z of [-1.05,-2.45]){box(supplies,'initial-survival-pack',[1.35,1.2,1.15],'armor',[x,2.02,z]);box(supplies,'cargo-strap',[1.4,.08,1.2],'structure',[x,2.2,z]);}
+ const ramp=part('ramp');ramp.position.set(0,1.4,-7.62);
  box(ramp,'door',[3.46,3.55,.12],'armor',[0,1.775,0]);
  for(const x of [-1.61,1.61])box(ramp,'ramp-edge',[.10,3.5,.06],'structure',[x,1.775,.10]);
  for(let i=1;i<13;i++)box(ramp,'traction',[3.18,.04,.025],'structure',[0,i*.267,.075]);

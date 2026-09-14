@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>COSMOS — 游隼航线图</title>
+<style>html,body{margin:0;height:100%;background:#03060a;color:#c7d2dc;font:12px/1.45 Menlo,"PingFang SC",monospace}#fallback{padding:24px}</style>
+</head>
+<body>
+<p id="fallback">航线图是 ES 模块：请运行 <code>npm start</code>，再打开 <code>http://127.0.0.1:5173/tools/flight-nav.html</code>。</p>
+<script src="../data/mola_4ppd.js"></script>
+<script type="module">
+// 独立航线图：起点读游戏保存的 NX07 位置；发送后进入游戏登上 NX07 即可按航线飞行。
+import { mountRouteChart } from '../src/nav/route-chart.js';
+import { loadPlan, savePlan, loadPpos } from '../src/nav/flight-plan.js';
+document.getElementById('fallback').remove();
+const chart = mountRouteChart(document.body, {
+  closable: false,
+  getOwnship: () => loadPpos(localStorage),
+  getPlan: () => loadPlan(localStorage, loadPpos(localStorage))?.route || null,
+  onSend: route => savePlan(localStorage, route, true)
+    ? `航线已发送游隼 · ${route.length - 1} 段 · 进入游戏登上 NX07 后点“按航线飞行”`
+    : '无法写入本机存储，航线未保存',
+});
+chart.open();
+window.__ROUTE_CHART = chart;
+</script>
+</body>
+</html>

@@ -47,8 +47,8 @@ export class 相机机架 {
     this.yaw = 0;
     this.pitch = 0.22;
     this.dist = opts.dist ?? 8.6;         // 跟车/环绕的距离，滚轮改这个
-    this.distMin = opts.distMin ?? 2.6;
-    this.distMax = opts.distMax ?? 42;    // 火星地形铺到 200 km，比月面版放宽
+    this.distMin = opts.distMin ?? 1.6;
+    this.distMax = opts.distMax ?? 240;   // 外部跟车/环绕允许从近景拉到远景，不再锁在狭窄驾驶距离
 
     this.pos = new THREE.Vector3();
     this.look = new THREE.Vector3();
@@ -72,8 +72,8 @@ export class 相机机架 {
 
   get modeName() { return 名称[this.mode]; }
 
-  /** 切到下一个机位 */
-  cycle(rover) { return this.setMode((this.mode + 1) % 4, rover); }
+  /** 切到下一个驾驶观察机位。自由摄影机位只由 P 显式进入，避免 WASD 在普通遥控中被改成飞相机。 */
+  cycle(rover) { return this.setMode(this.mode === CAM_MODE.PHOTO ? CAM_MODE.CHASE : (this.mode + 1) % 3, rover); }
 
   setMode(m, rover) {
     // 跟车机位把 yaw 停在车**后方**，直接带进桅杆机位的话，
