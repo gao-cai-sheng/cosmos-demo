@@ -85,7 +85,9 @@ function fail(title, detail) {
   errBox.style.display = 'block';
   errBox.innerHTML = '<b>' + title + '</b>' + String(detail || '');
 }
-addEventListener('error', (e) => fail('脚本出错', e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')));
+// ResizeObserver 的循环通知是浏览器的良性提醒，下一帧就会补送，不该当成脚本故障挡住画面。
+addEventListener('error', (e) => { if (/^ResizeObserver loop/.test(e.message || '')) return;
+  fail('脚本出错', e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')); });
 
 /* ============================================================
    天体档案

@@ -1,8 +1,11 @@
 import * as THREE from 'three';
+import { createMarsSurfaceMaterial } from '../../src/journey/mars-surface-material.js';
+import { createMarsRockMaterial } from '../../src/journey/mars-rock-material.js';
 import { createGrassField, createStructuredTree } from './vegetation.js';
 import { getJourney, updateJourney, sceneURL, isJourneyMode, SURVEY_IDS, getSettings } from '../../src/journey/state.js';
 import { mountJourneyUI } from '../../src/journey/ui.js';
 import { mountMobility } from '../../src/journey/mobility.js';
+import { openRelicArchive } from '../../src/relics/archive-overlay.js';
 
 const JOURNEY = isJourneyMode();
 const savedJourney = JOURNEY ? getJourney() : null;
@@ -33,9 +36,9 @@ const TAU = Math.PI * 2;
    真实地形：MOLA MEGDR 4 px/度
    ------------------------------------------------------------
    原型里穹顶外面是一圈程序化噪声山。这里换成火星实测高程，
-   站点选在科普剌忒斯峡谷谷底 —— 高程 −4.64 km，是火星上气压最高的
-   地方之一（希腊平原之外），两侧崖壁挡风，又在赤道附近好补给。
-   往北 30 km 就是 7.7 km 高的北壁，透过穹顶玻璃能看见。
+   站点跟着任务存档走；没有存档时默认埃律西昂平原（D60，洞察号以南约 7 km）。
+   原先默认科普剌忒斯峡谷谷底（高程 −4.64 km、气压高、崖壁挡风、北壁透过穹顶可见），
+   但谷底太陡，飞船停不下、车开不下去，改为平原；谷底仍可用 ?lat=-13.375&lon=300.125 打开。
    和 tools/mars-vista.html、tools/mars-orbit.html 用的是同一份数据。
    ============================================================ */
 const PARK_QS = new URLSearchParams(window.location.search);
@@ -45,7 +48,7 @@ const SITE = (() => {
   if (Number.isFinite(la) && Number.isFinite(lo)) {
     return { lat: Math.max(-88, Math.min(88, la)), lon: ((lo % 360) + 360) % 360 };
   }
-  return { lat: -13.375, lon: 300.125 };          // 默认：科普剌忒斯谷底采样格中心
+  return { lat: 4.375, lon: 135.625 };            // 默认：埃律西昂平原采样格中心（= DEFAULT_SITE）
 })();
 const R_M = 3396200;                              // 火星基准半径（米）
 const D2R = Math.PI / 180;
@@ -479,7 +482,7 @@ function createDistantTerrain() {
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.97, metalness: 0,
   }));
-  mesh.name = 'Coprates Chasma (MOLA)';
+  mesh.name = 'Site Terrain (MOLA)';
   world.add(mesh);
 }
 
@@ -519,22 +522,15 @@ function createNearTerrain() {
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
   geometry.rotateX(-Math.PI / 2);
-  const material = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.98,
-    metalness: 0.01,
-  });
+  const surfaceParams = new URLSearchParams(location.search);
+  const material = createMarsSurfaceMaterial({ debug: surfaceParams.get('surfaceDebug'), enabled: surfaceParams.get('surface') !== 'legacy' });
   const terrain = new THREE.Mesh(geometry, material);
   terrain.name = 'Procedural Mars Terrain';
   terrain.receiveShadow = true;
   groundGroup.add(terrain);
 
   const rand = mulberry32(20520114);
-  const mountainMaterial = new THREE.MeshStandardMaterial({
-    color: palette.rock,
-    roughness: 1,
-    flatShading: true,
-  });
+  const mountainMaterial = createMarsRockMaterial({ color: '#736255', debug: new URLSearchParams(location.search).get('rockDebug') });
   const matrix = new THREE.Matrix4();
   const quaternion = new THREE.Quaternion();
   const scale = new THREE.Vector3();
@@ -1374,7 +1370,7 @@ const BUILD = {
   plane: new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
   materials: [],
 };
-const BUILD_SKIP = ['Procedural Mars Terrain', 'Coprates Chasma (MOLA)', 'Rock Field'];
+const BUILD_SKIP = ['Procedural Mars Terrain', 'Site Terrain (MOLA)', 'Rock Field'];
 
 function armBuildAnimation() {
   const tag = document.getElementById('build-tag');
@@ -1428,7 +1424,7 @@ const linkRoot = new THREE.Group();
 linkRoot.name = 'Links';
 const TRAMS = [];
 
-const GROUND_NAMES = ['Ground', 'Procedural Mars Terrain', 'Coprates Chasma (MOLA)', 'Rock Field'];
+const GROUND_NAMES = ['Ground', 'Procedural Mars Terrain', 'Site Terrain (MOLA)', 'Rock Field'];
 
 /** 把已经建好的园区内容收成模板，并把第一座登记进注册表。 */
 function harvestTemplate(name) {
@@ -1785,7 +1781,8 @@ async function toggleRover() {
     const { makeCameraRig } = 相机;
     CAM_MODE = 相机.CAM_MODE;
     DRIVE.fence = 0;
-    terrainAdapter = makeTerrainAdapter((x, z, cell) => terrainHeight(x, z, cell === undefined ? 0.05 : cell));
+    // MU-7 也踩前哨仓的地基、坡道和土坡（D69），和地表场景 tools/mars-vista.html 同一个做法
+    terrainAdapter = makeTerrainAdapter((x, z, cell) => mobility?.padFloor?.(x, z) ?? terrainHeight(x, z, cell === undefined ? 0.05 : cell));
     ROVER = new Rover(terrainAdapter, scene);
     const c0 = CAMPUSES[0];
     const parked = JOURNEY ? getJourney()?.parkRover : null;
@@ -2144,6 +2141,8 @@ function initMobility() {
     ...TRAMS.map(t=>({type:'line',a:t.curve.getPoint(0),b:t.curve.getPoint(1),radius:6,height:12})),
   ];
   mobility=mountMobility({kind:'park',site:SITE,scene,camera,canvas,
+    // 通信台打开遗迹档案（src/relics，D65）。基地这里没有遗迹，拍照在地表场景里。
+    openStation:id=>id==='comms'&&openRelicArchive({setOverlay:v=>mobility.setOverlay(v)}),
     heightAt:(x,z)=>terrainHeight(x,z,.05),getObstacles:obstacles,
     rover:{traction:()=>drvIn?.ctl.tc??true,toggleTraction:()=>{if(drvIn)drvIn.ctl.tc=!drvIn.ctl.tc;},model:()=>ROVER,photo:()=>{if(rig){rig.setMode(rig.mode===CAM_MODE.PHOTO?CAM_MODE.CHASE:CAM_MODE.PHOTO,ROVER);}},cycle:()=>rig?.cycle(ROVER),view:()=>rig?.modeName,ready:()=>!!ROVER,driving:()=>DRIVING,speed:()=>ROVER?.speed||0,
       position:()=>ROVER?{x:ROVER.pos.x,z:ROVER.pos.z,heading:Math.atan2(ROVER.forward.x,ROVER.forward.z)}:{x:CAMPUSES[0].x+156,z:CAMPUSES[0].z+40,heading:-Math.PI/2},

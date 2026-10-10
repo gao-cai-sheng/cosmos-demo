@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COSMOS · 多层育苗架手工资产预览</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#d4d9da;color:#142328;font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+canvas{display:block;width:100%;height:100%}.panel{position:fixed;z-index:2;left:20px;top:20px;max-width:360px;padding:16px 18px;background:#eef0eeeb;border:1px solid #929f9f;box-shadow:0 12px 36px #26373b26}
+h1{font-size:14px;letter-spacing:.1em;margin:0 0 4px}.sub{font-size:11px;color:#526269;margin-bottom:14px}.states{display:flex;flex-wrap:wrap;gap:5px}button{font:inherit;font-size:11px;padding:7px 9px;border:1px solid #66797d;background:#f7f8f5;color:#173139;cursor:pointer}button.active{background:#355c58;color:white;border-color:#355c58}.note{margin-top:14px;font-size:11px;color:#35484d;max-width:310px}.metrics{position:fixed;right:20px;top:20px;padding:12px 14px;background:#eef0eeeb;border:1px solid #929f9f;font-size:11px;line-height:1.8}.footer{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:7px 10px;background:#eef0eeeb;font-size:11px;color:#526269;white-space:nowrap}
+</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
+</head>
+<body>
+<aside class="panel"><h1>HYDROPONIC RACK · 01</h1><div class="sub">程序化手工资产 · 2.10 × 2.075 × 0.77 m</div><div class="states"></div><p class="note">三层可抽换槽体、滴灌回路、试验水盒、遮光灯罩和控制面板。切换状态可查看本批实际进度表现。</p></aside>
+<div class="metrics" id="metrics">正在构建网格…</div><div class="footer">左键旋转 · 滚轮缩放 · 右键平移</div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from '../vendor/three/examples/jsm/controls/OrbitControls.js';
+import {create, SPEC} from '../src/artifacts/hydroponic-rack/hydroponic-rack.js';
+import {createOutpostInteriorMaterials,disposeOutpostInteriorMaterials} from '../src/journey/outpost-interior-materials.js';
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(1);renderer.setSize(1200,1200);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.NoToneMapping;renderer.shadowMap.enabled=true;document.body.append(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#d4d9da');
+const camera=new THREE.PerspectiveCamera(35,1,.05,80);camera.position.set(5.9,4.2,7.2);camera.lookAt(0,1.03,0);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,1.03,0);controls.enableDamping=true;controls.dampingFactor=.08;controls.update();
+scene.add(new THREE.HemisphereLight(0xeaf2f1,0x66716e,2.0));const key=new THREE.DirectionalLight(0xfff4df,3.2);key.position.set(-3,7,5);scene.add(key);const fill=new THREE.DirectionalLight(0xb5dbe1,1.15);fill.position.set(4,3,-4);scene.add(fill);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xd4d9da,roughness:.86}));floor.rotation.x=-Math.PI/2;floor.position.y=-.012;floor.receiveShadow=true;scene.add(floor);
+const source=createOutpostInteriorMaterials(),materials={structure:source.panel,frameTrim:source.trim,detail:source.dark,tray:source.ochre,seal:source.seal,water:source.glass,channel:source.brass,lamp:source.grow,signal:source.readout,warning:source.accent,substrate:source.soil,foliage:source.leaf,foliageDeep:source.leafDeep};
+const asset=create({materials,seed:SPEC.seed,lod:0});scene.add(asset.group);asset.group.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+const labels={installed:'空架',checked:'清单核对',filled:'加入试验水',sown:'播种',growing:'培养运行',paused:'暂停告警',ready:'幼苗待验收',verified:'验收完成'};
+const bar=document.querySelector('.states');for(const [state,label]of Object.entries(labels)){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{asset.setState(state);bar.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));document.querySelector('#metrics').textContent=`状态：${label}\n${JSON.stringify(asset.getMetrics())}`;};bar.append(b);if(state==='installed')b.click();}
+function draw(){controls.update();renderer.render(scene,camera);asset.recordRender(renderer.info.render);document.querySelector('#metrics').textContent=`LOD ${asset.getMetrics().lod} · ${asset.getMetrics().triangles.toLocaleString()} triangles\nMeshes ${asset.getMetrics().meshes} · calls ${asset.getMetrics().drawCalls}\nHash ${asset.getMetrics().geometryHash.slice(0,18)}…`;requestAnimationFrame(draw);}draw();
+window.addEventListener('beforeunload',()=>{asset.dispose();disposeOutpostInteriorMaterials(source);renderer.dispose();});
+</script></body></html>

@@ -1,0 +1,164 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>前哨舱组 · 三舱段</title>
+<style>
+body{margin:0;background:#dde2e3;color:#24343e;font:14px system-ui}canvas{display:block}
+header{position:absolute;top:28px;left:36px;max-width:min(420px,60vw)}
+h1{font-size:24px;font-weight:500;margin:6px 0}small{letter-spacing:3px;color:#61717b}
+p{color:#61717b;margin:4px 0}
+nav{position:absolute;bottom:18px;left:18px;right:18px;display:flex;flex-wrap:wrap;gap:7px}
+button{padding:9px 15px;border:1px solid #9aa8ae;background:#ffffffb0;color:#24343e;cursor:pointer;font:inherit}
+button.on{background:#24343e;color:#fff;border-color:#24343e}
+#stats{position:absolute;top:28px;right:36px;text-align:right;color:#61717b;font:12px ui-monospace,Menlo,monospace;line-height:1.7}
+#stats b{color:#24343e;font-weight:600}
+</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<header><small>COSMOS / OUTPOST</small><h1>前哨舱组 · 居住－气闸－设备</h1><p>拖动旋转 · 滚轮缩放。灰色人形为 1.9 m 宇航员，用来判断舱内是否站得开。</p></header>
+<div id="stats">载入中…</div>
+<nav>
+  <button data-view="hero">透视</button><button data-view="front">正视</button><button data-view="rear">后视</button>
+  <button data-view="left-side">左侧</button><button data-view="right-side">右侧</button><button data-view="top">俯视</button>
+  <button data-view="rear3q">后 3/4</button><button data-view="top3q">顶 3/4</button><button data-view="ramp">坡道口</button>
+  <button data-view="left-close">居住舱近景</button><button data-view="lab-close">设备舱近景</button><button data-view="tunnel-close">连廊接口</button>
+  <button data-view="inside">连廊向外看</button><button data-view="window">舷窗向外看</button>
+  <span style="flex:1"></span>
+  <button id="cut">纵剖（看内部）</button><button id="scaleFig">隐藏人形</button><button id="capture" hidden>保存验证图</button>
+</nav>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+// 成品尺度：模型在 refine.py 导出前整体放大了 S 倍。相机、标签、靶标的位置跟着乘 S，
+// 但**人形不乘** —— 它是 1.9 m 的参照物，对照的意义就在于它保持真人尺寸。
+const S=1.4;
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdde2e3);
+const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,.1,600);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.localClippingEnabled=true;
+document.body.append(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x66757b,2.1));
+const sun=new THREE.DirectionalLight(0xfff9ed,3.0);sun.position.set(-26,40,30);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-32,right:32,top:32,bottom:-32});
+sun.shadow.normalBias=.04;scene.add(sun);
+
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.MeshStandardMaterial({color:0xcbd3d5,roughness:1}));
+floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const grid=new THREE.GridHelper(120,120,0xb4c0c4,0xc2cccf);grid.position.y=.01;scene.add(grid);
+
+// High-contrast targets outside both windows make transparency inspectable from inside.
+const targets=new THREE.Group();targets.visible=false;scene.add(targets);
+for(const x of [-13.55*S,-5.25*S])for(let i=0;i<6;i++){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(.38,.40,.38),new THREE.MeshStandardMaterial({color:i%2?0xed8d30:0xf6f5ee,roughness:.8}));
+  m.position.set(x,.20+i*.40,7*S);targets.add(m);
+}
+
+// A 1.9 m stand-in, same height as the game's EVA astronaut. Cheap on purpose:
+// this page answers "does a person fit", not "what does the suit look like".
+const figure=new THREE.Group();
+const skin=new THREE.MeshStandardMaterial({color:0x8d9aa2,roughness:.85});
+const body=new THREE.Mesh(new THREE.CapsuleGeometry(.26,1.02,6,14),skin);body.position.y=1.06;
+const head=new THREE.Mesh(new THREE.SphereGeometry(.16,18,14),skin);head.position.y=1.76;
+for(const m of [body,head]){m.castShadow=true;figure.add(m);}
+figure.position.set(-10.5*S,0,5.2*S);scene.add(figure);
+
+// The generated shell is one closed surface with nothing inside, so a clip plane is
+// the only way to see that from the outside. Cutting on z keeps the long axis intact.
+const clip=new THREE.Plane(new THREE.Vector3(0,0,-1),0);
+let cutting=false;
+
+const MODULES=[
+  {name:'居住舱',x0:-16.5*S,x1:-6.157*S},
+  {name:'通道',x0:-6.157*S,x1:-3.394*S},
+  {name:'气闸舱',x0:-3.394*S,x1:3.47*S},
+  {name:'通道',x0:3.47*S,x1:6.232*S},
+  {name:'设备舱 / 化验室',x0:6.232*S,x1:16.5*S},
+];
+const labels=new THREE.Group();scene.add(labels);
+function tag(text,x,y){
+  const c=document.createElement('canvas');c.width=512;c.height=96;const g=c.getContext('2d');
+  g.fillStyle='#24343e';g.font='600 46px system-ui';g.textAlign='center';g.textBaseline='middle';
+  g.fillText(text,256,48);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));
+  s.scale.set(7.2*S,1.35*S,1);s.position.set(x,y,0);labels.add(s);
+}
+for(const m of MODULES) if(m.name!=='通道') tag(m.name,(m.x0+m.x1)/2,7.6*S);
+
+const stats=document.getElementById('stats');
+const t0=performance.now();
+let shell=null,tris=0;
+const params=new URLSearchParams(location.search),gameAsset=params.has('game'),singleSided=params.has('single'),requestedView=params.get('view');
+// Visual refinement workflow defaults to the current candidate. Add ?game=1 to compare the promoted game asset.
+// ?single=1 is the mandatory geometry-inspection mode: FrontSide only, with longitudinal clipping disabled.
+const modelURL=gameAsset?'../assets/models/outpost.glb':'../blender/outpost-hy3d/work/refined.glb';
+new GLTFLoader().loadAsync(new URL(modelURL,import.meta.url).href).then(gltf=>{
+  shell=gltf.scene;
+  const box=new THREE.Box3().setFromObject(shell),size=box.getSize(new THREE.Vector3());
+  shell.traverse(o=>{
+    if(!o.isMesh)return;
+    o.castShadow=o.receiveShadow=true;
+    o.geometry.computeBoundingSphere();
+    tris+=o.geometry.index?o.geometry.index.count/3:o.geometry.attributes.position.count/3;
+    o.material.side=singleSided?THREE.FrontSide:THREE.DoubleSide;
+    o.material.clippingPlanes=singleSided?[]:[clip];
+    o.material.clipShadows=!singleSided;
+    if(o.material.name.startsWith('Glass.')){o.material.depthWrite=false;o.castShadow=false;}
+  });
+  scene.add(shell);
+  const ms=Math.round(performance.now()-t0);
+  stats.innerHTML=`<b>${size.x.toFixed(1)} × ${size.z.toFixed(1)} × ${size.y.toFixed(1)}</b> m<br>`+
+    `${(tris/1000).toFixed(1)}k 三角面<br>${gameAsset?'游戏资产':'精修候选 v2'} · ${singleSided?'FrontSide 单面验收':'DoubleSide 纵剖模式'} · 载入 <b>${ms}</b> ms`;
+  window.__OUTPOST={size:size.toArray().map(v=>+v.toFixed(3)),tris,loadMs:ms,modules:MODULES};
+  const requestedButton=requestedView&&document.querySelector(`nav button[data-view="${requestedView}"]`);
+  if(requestedButton)requestedButton.click(); else render();
+  if(params.has('autocapture'))setTimeout(()=>document.getElementById('capture')?.click(),350);
+}).catch(e=>{stats.textContent='载入失败：'+e.message;window.__OUTPOST={error:e.message};});
+
+let az=.78,el=.34,radius=70,target=new THREE.Vector3(0,3,0),currentView='hero';
+const V3=t=>[t[0]*S,t[1]*S,t[2]*S];
+const views=Object.fromEntries(Object.entries({
+  hero:[.78,.34,70,[0,3,0]], front:[0,.10,64,[0,3,0]], rear:[Math.PI,.10,64,[0,3,-.55]],
+  'left-side':[-Math.PI/2,.10,36,[-.4,3,-.35]], 'right-side':[Math.PI/2,.10,36,[.4,3,-.35]],
+  top:[0,1.45,67,[0,0,0]], rear3q:[2.35,.32,70,[0,3,-.45]], top3q:[.78,.82,72,[0,2.2,-.25]],
+  ramp:[.2,.16,17,[0,2.4,2.6]],
+  'left-close':[-.10,.08,17,[-11.2,2.85,1.7]], 'lab-close':[.12,.08,17,[11.3,2.90,1.55]], 'tunnel-close':[.20,.08,12,[-4.9,2.85,-.35]],
+  inside:[Math.PI,0,3,[-5.25,2.95,2.54]], window:[Math.PI,0,4.8,[-13.55,2.86,3.40]],
+}).map(([k,[a,e,r,t]])=>[k,[a,e,r*S,V3(t)]]));
+function render(){
+  clip.constant=(!singleSided&&cutting)?0:1e4;
+  camera.position.set(target.x+Math.sin(az)*Math.cos(el)*radius,target.y+Math.sin(el)*radius,target.z+Math.cos(az)*Math.cos(el)*radius);
+  camera.lookAt(target);
+  floor.visible=grid.visible=el>=0;
+  renderer.render(scene,camera);
+}
+for(const b of document.querySelectorAll('nav button[data-view]'))b.onclick=()=>{
+  const [a,e,r,t]=views[b.dataset.view];az=a;el=e;radius=r;target.set(...t);
+  currentView=b.dataset.view;
+  labels.visible=!['inside','window','ramp','left-close','lab-close','tunnel-close'].includes(currentView);
+  targets.visible=['inside','window'].includes(currentView);render();
+};
+if(new URLSearchParams(location.search).has('capture')){
+  const b=document.getElementById('capture');b.hidden=false;
+  b.onclick=async()=>{
+    // Evidence uses the named fixed camera, even after manual orbit/zoom.
+    const [a,e,r,t]=views[currentView];az=a;el=e;radius=r;target.set(...t);
+    render();
+    const res=await fetch('/__shot?n=outpost-'+currentView,{method:'POST',body:renderer.domElement.toDataURL('image/png')});
+    const metadata={view:currentView,model:modelURL,singleSided,materialSide:singleSided?'FrontSide':'DoubleSide',canvas:[renderer.domElement.width,renderer.domElement.height],pixelRatio:renderer.getPixelRatio(),camera:{fov:camera.fov,position:camera.position.toArray(),target:target.toArray()},renderer:{three:THREE.REVISION,toneMapping:'ACESFilmic',output:'sRGB',post:false},rendered:renderer.info.render};
+    await fetch('/__shot?n=outpost-'+currentView+'&ext=json',{method:'POST',body:btoa(JSON.stringify(metadata,null,2))});
+    b.textContent=res.ok?'已保存 '+currentView:'保存失败（需要 --shots）';
+  };
+}
+const cutButton=document.getElementById('cut');
+if(singleSided){cutButton.disabled=true;cutButton.hidden=true;cutting=false;}
+else cutButton.onclick=e=>{cutting=!cutting;e.target.classList.toggle('on',cutting);render();};
+document.getElementById('scaleFig').onclick=e=>{figure.visible=!figure.visible;e.target.textContent=figure.visible?'隐藏人形':'显示人形';render();};
+
+let drag=null;
+renderer.domElement.onpointerdown=e=>{drag=[e.clientX,e.clientY];renderer.domElement.setPointerCapture(e.pointerId);};
+renderer.domElement.onpointermove=e=>{if(!drag)return;if(!e.buttons){drag=null;return;}az-=(e.clientX-drag[0])*.008;el=THREE.MathUtils.clamp(el+(e.clientY-drag[1])*.008,-1.3,1.5);drag=[e.clientX,e.clientY];render();};
+renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>drag=null;
+renderer.domElement.onwheel=e=>{e.preventDefault();radius=THREE.MathUtils.clamp(radius+e.deltaY*.05,6,160);render();};
+onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);render();};
+render();
+</script></html>

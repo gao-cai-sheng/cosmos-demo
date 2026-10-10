@@ -1,0 +1,115 @@
+/* 艾琳任务卡（src/cards/card-hud.js、beacon.js、briefing.js，D70） */
+/* 原来的文字任务面板本来就收在操作台「任务」按钮后面（mobility.css），点开时正好盖在任务卡的位置上。
+   有任务卡时那段文字不再显示，按钮里的动作照旧；?cards=0 时不加 cards-on 这个类。 */
+body.cards-on .journey-objective, body.cards-on.show-mission .journey-objective { display: none !important; }
+
+.erin-card {
+  position: fixed; left: 28px; top: 97px; z-index: 56; width: min(348px, calc(100vw - 32px));
+  display: grid; grid-template-columns: 84px 1fr; gap: 0 12px; padding: 12px; box-sizing: border-box;
+  background: #0b1117e6; border: 1px solid #2b3a46; border-left: 3px solid #7fe9ff; border-radius: 10px;
+  box-shadow: 0 16px 48px #000a; color: #eaf6fb;
+  font: 14px/1.4 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.erin-card[hidden] { display: none; }
+.erin-card.in { animation: erin-card-in .35s ease-out; }
+@keyframes erin-card-in { from { transform: translateX(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+.erin-card.nudge { animation: erin-card-nudge .6s ease-in-out 2; }
+@keyframes erin-card-nudge { 50% { transform: translateX(8px); border-left-color: #fff; } }
+
+/* 艾琳半身：全身立绘只露头到腰，位置由 card-hud.js 按头顶坐标对准 */
+.ec-erin { position: relative; width: 84px; height: 104px; overflow: hidden; border-radius: 8px;
+  background: radial-gradient(circle at 50% 30%, #1d5b6e, #0b1820 75%); box-shadow: inset 0 0 0 1px #7fe9ff55; }
+.ec-erin img { position: absolute; max-width: none; filter: drop-shadow(0 0 6px #7fe9ff66); }
+
+.ec-body { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.ec-head { display: flex; align-items: center; gap: 10px; }
+.ec-pic { flex: none; width: 52px; height: 52px; color: #7fe9ff; }
+.ec-pic svg { width: 100%; height: 100%; display: block; }
+.ec-title { font-size: 24px; font-weight: 650; letter-spacing: .04em; line-height: 1.15; }
+.ec-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+.ec-keys:empty { display: none; }
+.ec-keys kbd {
+  min-width: 34px; height: 34px; padding: 0 9px; box-sizing: border-box; display: inline-grid; place-items: center;
+  font: 700 16px/1 ui-monospace, "SF Mono", Menlo, monospace; color: #0b1117; white-space: nowrap;
+  background: linear-gradient(#ffffff, #cfe3ea); border-radius: 7px; box-shadow: 0 3px 0 #6f8a94, 0 4px 8px #0008;
+}
+.ec-way { display: flex; align-items: center; gap: 8px; font-size: 17px; color: #c8f6ff; }
+.ec-way[hidden] { display: none; }
+.ec-arrow { display: inline-block; font-style: normal; font-size: 24px; line-height: 1; color: #7fe9ff; transition: transform .2s linear; }
+.ec-act {
+  justify-self: start; padding: 9px 18px; border: 0; border-radius: 8px; cursor: pointer; pointer-events: auto;
+  font: 700 17px/1.2 system-ui, -apple-system, "PingFang SC", sans-serif; color: #06222b; background: #7fe9ff; box-shadow: 0 3px 0 #2c8ea6;
+}
+.ec-act[hidden] { display: none; }
+.ec-act:disabled { opacity: .35; cursor: default; box-shadow: none; }
+.ec-act:not(:disabled):active { transform: translateY(2px); box-shadow: 0 1px 0 #2c8ea6; }
+
+.ec-say { grid-column: 1 / -1; margin: 10px 0 0; padding: 9px 34px 0 0; border-top: 1px solid #2b3a46; color: #b8cad4; font-size: 14px; min-height: 1.4em; }
+.ec-mute { position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+  background: #15212b; color: #dfe6ec; font-size: 15px; cursor: pointer; }
+.ec-tick { position: absolute; right: 12px; top: 8px; font-size: 44px; line-height: 1; color: #34d399; opacity: 0; transform: scale(.3); pointer-events: none; }
+.erin-card.is-done { border-left-color: #34d399; }
+.erin-card.is-done .ec-tick { animation: erin-card-tick .5s cubic-bezier(.2, 1.6, .4, 1) forwards; }
+@keyframes erin-card-tick { to { opacity: 1; transform: none; } }
+
+/* 一句话折行时别把最后一两个字单独剩在下一行 */
+.ec-say, .ebr-box p { text-wrap: balance; }
+
+/* 光柱顶上的图标 */
+.erin-beacon-tag { position: fixed; left: 0; top: 0; z-index: 9; width: 46px; height: 46px; padding: 7px; box-sizing: border-box;
+  pointer-events: none; color: #06222b; background: #7fe9ff; border-radius: 50%; box-shadow: 0 0 18px #7fe9ffaa; }
+.erin-beacon-tag[hidden] { display: none; }
+.erin-beacon-tag svg { width: 100%; height: 100%; display: block; }
+
+/* 大卡 */
+.erin-briefing { position: fixed; inset: 0; z-index: 62; display: grid; grid-template-columns: minmax(0, 42vw) 1fr; align-items: end;
+  background: radial-gradient(ellipse at 30% 40%, #10323ddd, #04080bf2 70%); color: #eaf6fb; overflow: hidden;
+  font: 20px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.ebr-erin { justify-self: center; height: min(92vh, 84vw); max-width: none; filter: drop-shadow(0 0 22px #7fe9ff55); }
+.ebr-box { align-self: center; margin-right: 6vw; padding: 26px 30px; background: #0b1117e6; border: 1px solid #2b3a46;
+  border-left: 3px solid #7fe9ff; border-radius: 12px; display: grid; gap: 16px; }
+.ebr-box small { color: #7fe9ff; letter-spacing: .14em; font-size: 14px; }
+.ebr-box p { margin: 0; font-size: 24px; min-height: 3.2em; }
+.ebr-box button { justify-self: start; padding: 11px 22px; border: 1px solid #2b3a46; border-radius: 8px; cursor: pointer;
+  font: 700 18px/1.2 system-ui, -apple-system, "PingFang SC", sans-serif; color: #dfe6ec; background: #15212b; }
+.ebr-box button.primary { color: #06222b; background: #7fe9ff; border-color: #7fe9ff; }
+
+@media (max-width: 760px) {
+  .erin-card { left: 16px; top: 73px; grid-template-columns: 64px 1fr; padding: 10px; }
+  .ec-erin { width: 64px; height: 80px; }
+  .ec-title { font-size: 20px; }
+  .ec-pic { width: 40px; height: 40px; }
+  .erin-briefing { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .ebr-erin { height: 52vh; }
+  .ebr-box { margin: 0 16px 16px; padding: 18px; }
+  .ebr-box p { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .erin-card.in, .erin-card.nudge, .erin-card.is-done .ec-tick { animation: none; }
+  .erin-card.is-done .ec-tick { opacity: 1; transform: none; }
+}
+
+/* 照片与多动作卡（D76） */
+.ec-pic img, .erin-beacon-tag img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ec-acts { display: flex; flex-wrap: wrap; gap: 10px; }
+.ec-acts:empty { display: none; }
+.ec-act.has-pic { display: grid; justify-items: center; gap: 4px; min-width: 92px; padding: 10px 14px; }
+.ec-act.has-pic[hidden] { display: none; }
+.ec-act-pic { display: block; width: 44px; height: 44px; }
+.ec-act-pic svg { width: 100%; height: 100%; display: block; }
+.erin-card.ec-away { visibility: hidden; }
+body.cards-on .relic-chip { display: none !important; }
+
+/* Keep the compact global heading/status above the task card on narrow screens. */
+@media (max-width:699px) {
+  body.cards-on .cd-center { top:43px; width:calc(100vw - 32px); max-width:none; }
+  body.cards-on .cd-compass { height:26px; padding-right:64px; }
+  body.cards-on .cd-compass-ticks { right:64px; }
+  body.cards-on .cd-compass-ticks span { top:6px; font-size:9px; }
+  body.cards-on .cd-compass-ticks span::before { top:-6px; height:5px; }
+  body.cards-on .cd-compass-pointer { display:none; }
+  body.cards-on .cd-heading { top:0; left:auto; right:0; transform:none; padding:4px 8px; height:26px; }
+  body.cards-on .cd-status { margin-top:4px; padding:3px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  body.cards-on .erin-card { top:109px; }
+}
+.ec-action-reason{margin:0;color:#f0cd94;font-size:12px;line-height:1.5;overflow-wrap:anywhere}.ec-action-reason[hidden]{display:none}.ec-act{min-height:44px}.ec-mute{width:44px;height:44px;right:3px;bottom:3px}.ec-say{padding-right:44px}

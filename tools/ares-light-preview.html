@@ -1,0 +1,39 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>ARES-L · 四驱封闭车</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#e2e5e7;color:#26333a;font:14px system-ui}canvas{display:block;width:100%;height:100%}header{position:absolute;top:24px;left:28px;pointer-events:none}h1{margin:6px 0;font-size:26px;font-weight:550}p{margin:6px 0;color:#52616a;line-height:1.5}small{letter-spacing:2px}nav{position:absolute;bottom:22px;left:28px;right:28px;display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #9aa7ae;border-radius:5px;background:#ffffffdc;padding:9px 14px;color:inherit;font:inherit;cursor:pointer}button[aria-pressed=true]{background:#233841;color:white}#status{position:absolute;bottom:76px;left:28px;color:#52616a;font-size:12px}a{color:inherit}@media(max-width:600px){header{left:18px;top:18px;right:18px}h1{font-size:22px}p{font-size:12px}nav{left:18px;right:18px;bottom:18px;gap:6px}button{padding:8px 10px;font-size:12px}#status{left:18px;bottom:111px;max-width:350px}}
+</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<header><small>COSMOS / ARES-L</small><h1>四驱封闭任务车</h1><p>以 ARES 为蓝本 · 保留原座舱与轮胎尺度<br>侦察 / 医疗 / 植物运载共用车身，内装待设计</p></header>
+<div id="status">正在加载模型…</div><nav><button data-view="hero">透视</button><button data-view="front">正视</button><button data-view="side">侧视</button><button data-view="rear">后视</button><button data-view="top">俯视</button><button id="roll" aria-pressed="false">轮组转动</button><button id="compare" aria-pressed="false">原车对照</button><a href="ares-light-cabin.html" style="padding:9px 14px;border:1px solid #9aa7ae;border-radius:5px;background:#fff">双座内装试验</a><a href="mars-vista.html?light=1&cards=0" style="padding:9px 14px;border:1px solid #9aa7ae;border-radius:5px;background:#fff">进入游戏 · 4号舱口收放</a></nav>
+<script type="module">
+import * as THREE from 'three';import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xe2e5e7);
+const camera=new THREE.PerspectiveCamera(35,innerWidth/innerHeight,.1,250);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(1);renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.NoToneMapping;document.body.append(renderer.domElement);
+const controls={target:new THREE.Vector3(),update(){camera.lookAt(this.target)}};
+scene.add(new THREE.HemisphereLight(0xffffff,0x6d7882,2));const key=new THREE.DirectionalLight(0xfff9f1,2.2);key.position.set(-8,16,12);scene.add(key);const fill=new THREE.DirectionalLight(0xcbdcff,.7);fill.position.set(9,8,-6);scene.add(fill);
+const models=new THREE.Group();scene.add(models);const loader=new GLTFLoader();let vehicle,original,spinning=false,compare=false,last=0;const wheels=[];
+const viewDirections={hero:new THREE.Vector3(Math.sin(35*Math.PI/180)*Math.cos(18*Math.PI/180),Math.sin(18*Math.PI/180),Math.cos(35*Math.PI/180)*Math.cos(18*Math.PI/180)),front:new THREE.Vector3(0,.04,1),rear:new THREE.Vector3(0,.04,-1),side:new THREE.Vector3(1,.04,0),top:new THREE.Vector3(0,1,.001)};
+function fit(name='hero'){
+ const box=new THREE.Box3().setFromObject(models),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
+ const radius=size.length()/2;const distance=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov)/2)*1.12/Math.min(1,camera.aspect);
+ controls.target.copy(center);camera.position.copy(center).add(viewDirections[name].clone().normalize().multiplyScalar(distance));camera.lookAt(center);controls.update();render();
+}
+function render(){renderer.render(scene,camera)}
+let drag=null;renderer.domElement.onpointerdown=e=>{const v=camera.position.clone().sub(controls.target);drag={x:e.clientX,y:e.clientY,az:Math.atan2(v.x,v.z),el:Math.asin(v.y/v.length()),radius:v.length()};renderer.domElement.setPointerCapture(e.pointerId)};
+renderer.domElement.onpointermove=e=>{if(!drag)return;drag.az-=(e.clientX-drag.x)*.008;drag.el=THREE.MathUtils.clamp(drag.el+(e.clientY-drag.y)*.008,-1.5,1.5);drag.x=e.clientX;drag.y=e.clientY;camera.position.copy(controls.target).add(new THREE.Vector3(Math.sin(drag.az)*Math.cos(drag.el),Math.sin(drag.el),Math.cos(drag.az)*Math.cos(drag.el)).multiplyScalar(drag.radius));controls.update();render()};
+renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>drag=null;
+renderer.domElement.onwheel=e=>{e.preventDefault();const v=camera.position.clone().sub(controls.target);v.setLength(THREE.MathUtils.clamp(v.length()+e.deltaY*.02,5,90));camera.position.copy(controls.target).add(v);controls.update();render()};
+
+const gltf=await loader.loadAsync('../assets/models/ares-light.glb');vehicle=gltf.scene;vehicle.name='ARES-L';models.add(vehicle);vehicle.traverse(o=>{if(/^wheel_\d+$/.test(o.name))wheels.push(o)});
+const bounds=new THREE.Box3().setFromObject(vehicle),size=bounds.getSize(new THREE.Vector3());
+const status=document.querySelector('#status');status.textContent=`${wheels.length} 轮 / 4 个轮毂电机 · ${size.z.toFixed(2)} × ${size.x.toFixed(2)} × ${size.y.toFixed(2)} m（长×宽×高，含天线） · 拖动旋转，滚轮缩放`;
+for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>fit(b.dataset.view);
+document.querySelector('#roll').onclick=()=>{spinning=!spinning;document.querySelector('#roll').setAttribute('aria-pressed',String(spinning));if(spinning)requestAnimationFrame(animate)};
+function animate(t){const dt=last?Math.min(.04,(t-last)/1000):0;last=t;if(spinning){for(const w of wheels)w.rotation.x+=dt;render();requestAnimationFrame(animate)}else last=0}
+document.querySelector('#compare').onclick=async()=>{
+ const button=document.querySelector('#compare');button.disabled=true;
+ try{if(!original){original=(await loader.loadAsync('../assets/models/ares.glb')).scene;original.name='original ARES'}compare=!compare;button.setAttribute('aria-pressed',String(compare));if(compare){vehicle.position.x=-4;original.position.x=4;models.add(original)}else{vehicle.position.x=0;models.remove(original)}fit('hero')}catch(e){status.textContent='原车对照加载失败：'+e.message}finally{button.disabled=false}
+};
+onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);fit('hero')};fit();
+window.__ARES_LIGHT={vehicle,wheels,renderer,scene,camera,controls,fit,bounds:bounds.toArray?.(),metrics:{wheelCount:wheels.length,bounds:{min:bounds.min.toArray(),max:bounds.max.toArray(),size:size.toArray()}}};
+</script></html>

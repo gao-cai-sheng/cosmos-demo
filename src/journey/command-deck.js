@@ -1,6 +1,7 @@
 /** Snapshot-only command deck. It owns no movement, resource or mission simulation.
  * heading: compass degrees, 0 = world -Z, clockwise. Optional navRange is metres;
  * optional communications is a real connection/status label supplied by the game.
+ * A metric with percent becomes a resource bar (first two); its optional bar string replaces the bar text.
  */
 const STORE = 'cosmos.command-deck.inbox.v1';
 const LIMIT = 80;
@@ -33,23 +34,24 @@ function keyed(container, values, make, paint, key = item => item.id) {
   for (const element of existing.values()) element.remove();
 }
 
-export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onView = () => {}} = {}) {
+export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onView = () => {}, extraModes=[]} = {}) {
+  const liveModes=[...modes,...extraModes];
   const storeKey = `${STORE}:${location.pathname}${location.search}`;
   document.body.classList.add('command-deck-active');
   const css = node('link'); css.rel = 'stylesheet'; css.href = new URL('./command-deck.css',import.meta.url).href; document.head.append(css);
   const root = node('section','cd-root'); root.setAttribute('aria-label','任务操作台');
   root.innerHTML = `
-    <header class="cd-top"><b class="cd-brand">COSMOS <span>// COMMAND DECK</span></b><button type="button" class="cd-time" data-action="time" aria-label="打开时段选择">—</button><span class="cd-site">—</span><span class="cd-communications">任务通信</span><button class="cd-inbox-button" type="button" aria-label="打开消息日志">✉ <span>0</span> <kbd>J</kbd></button><button class="cd-pause" type="button" data-action="pause" aria-label="暂停游戏">暂停 <kbd>Esc</kbd></button></header>
+    <header class="cd-top"><b class="cd-brand">COSMOS <span>// COMMAND DECK</span></b><button type="button" class="cd-time" data-action="time" aria-label="打开时段选择">—</button><span class="cd-site">—</span><span class="cd-communications">任务通信</span><button class="cd-mission-button" type="button" aria-expanded="false" aria-controls="cd-mission-pop" aria-label="查看当前任务">任务 <span class="cd-mission-count"></span></button><button class="cd-inventory-button" type="button" aria-expanded="false" aria-controls="cd-inventory-pop" aria-label="查看物资与载荷">物资 <span class="cd-inventory-count">0</span></button><button class="cd-inbox-button" type="button" aria-label="打开消息日志">✉ <span>0</span> <kbd>J</kbd></button><button class="cd-pause" type="button" data-action="pause" aria-label="暂停游戏">暂停 <kbd>Esc</kbd></button></header>
     <div class="cd-center"><div class="cd-compass" aria-label="航向"><div class="cd-compass-ticks"></div><span class="cd-compass-pointer">▴</span><b class="cd-heading">000°</b></div><div class="cd-status" role="status"></div></div>
     <aside class="cd-toast" aria-live="polite" hidden><div class="cd-message-meta"><b class="cd-message-source"></b><time></time></div><div class="cd-message-title"><span class="cd-message-kind"></span><strong></strong></div><p></p><div class="cd-message-footer"><button type="button" class="cd-open-log">任务日志 <kbd>J</kbd></button><button type="button" class="cd-ack">知道了 <kbd>Enter</kbd></button></div><i class="cd-message-timer"></i></aside>
+    <section class="cd-inventory-pop" id="cd-inventory-pop" aria-label="物资与载荷" hidden><header><h2 class="cd-panel-title">物资与载荷</h2><button type="button" class="cd-close-inventory" aria-label="收起物资与载荷">收起 <kbd>Esc</kbd></button></header><div class="cd-inventory"></div><div class="cd-empty-inventory" hidden>当前无物资数据</div></section>
+    <section class="cd-mission-pop" id="cd-mission-pop" aria-label="当前任务" hidden><header><button type="button" class="cd-panel-title cd-mission-title" data-action="mission">任务详情</button><button type="button" class="cd-close-mission" aria-label="收起当前任务">收起 <kbd>Esc</kbd></button></header><p class="cd-mission-body"></p><div class="cd-progress cd-mission-progress" hidden><i></i></div><ol class="cd-mission-steps"></ol></section>
     <div class="cd-instruments"><aside class="cd-instrument cd-instrument-left" hidden></aside><aside class="cd-instrument cd-instrument-right" hidden></aside></div>
-    <div class="cd-bottom"><nav class="cd-mobile-tabs" aria-label="操作台面板"><button type="button" data-panel="actions" aria-pressed="true">操作</button><button type="button" data-panel="navigation" aria-pressed="false">导航</button><button type="button" data-panel="identity" aria-pressed="false">状态</button><button type="button" data-panel="inventory" aria-pressed="false">物资</button><button type="button" data-panel="mission" aria-pressed="false">任务</button></nav>
+    <div class="cd-bottom"><nav class="cd-mobile-tabs" aria-label="操作台面板"><button type="button" data-panel="actions" aria-pressed="true">操作</button><button type="button" data-panel="navigation" aria-pressed="false">导航</button><button type="button" data-panel="identity" aria-pressed="false">状态</button></nav>
     <div class="cd-dock" data-panel="actions">
       <section class="cd-panel cd-navigation" data-pane="navigation"><div class="cd-nav-head"><button type="button" class="cd-panel-title cd-map-button" data-action="map">周边导航 <kbd>M</kbd></button><button type="button" class="cd-route-button" data-action="route" aria-label="打开游隼航线图">航线图 ↗</button></div><canvas class="cd-map" aria-label="当前真实位置、路线和标记"></canvas><div class="cd-map-foot"></div></section>
       <section class="cd-panel cd-identity" data-pane="identity"><nav class="cd-mode-tabs" aria-label="查看主体"></nav><div class="cd-ident-body"><div class="cd-portrait"><div class="cd-emblem" aria-hidden="true"></div><div class="cd-ident-text"><strong class="cd-title"></strong><div class="cd-subtitle"></div></div><button type="button" class="cd-portrait-turn" data-step="-1" aria-label="上一个主体" title="上一个主体">‹</button><button type="button" class="cd-portrait-turn" data-step="1" aria-label="下一个主体" title="下一个主体">›</button><span class="cd-portrait-index"></span></div><div class="cd-ident-side"><dl class="cd-metrics"></dl><button type="button" class="cd-take-control" hidden></button></div></div><div class="cd-summon" aria-label="召唤载具"></div><details class="cd-instrument-details"><summary>仪器读数</summary><div class="cd-inline-instruments"></div></details></section>
-      <section class="cd-panel cd-actions-panel" data-pane="actions"><div class="cd-resource-bars"></div><div class="cd-actions"></div><button type="button" class="cd-more-actions" aria-expanded="false" hidden>更多操作</button><div class="cd-empty-actions" hidden>当前没有可用操作</div></section>
-      <section class="cd-panel cd-inventory-panel" data-pane="inventory"><h2 class="cd-panel-title">物资与载荷 <span class="cd-inventory-count"></span></h2><div class="cd-inventory"></div><div class="cd-empty-inventory" hidden>当前无物资数据</div></section>
-      <section class="cd-panel cd-mission-panel" data-pane="mission"><button type="button" class="cd-panel-title cd-mission-title" data-action="mission">任务详情</button><p class="cd-mission-body"></p><div class="cd-progress cd-mission-progress" hidden><i></i></div><ol class="cd-mission-steps"></ol><button class="cd-emergency" type="button" hidden></button></section>
+      <section class="cd-panel cd-actions-panel" data-pane="actions"><div class="cd-resource-bars"></div><div class="cd-action-grid"><div class="cd-actions"></div><button class="cd-emergency" type="button" hidden><strong></strong><small></small></button></div><div class="cd-actions-extra" aria-label="更多操作" hidden></div><button type="button" class="cd-more-actions" aria-expanded="false" hidden>更多操作</button><div class="cd-empty-actions" hidden>当前没有可用操作</div></section>
     </div></div>
     <dialog class="cd-log"><header><div><span>COMMAND LOG</span><h2>任务通信</h2></div><button type="button" class="cd-close-log" aria-label="关闭消息日志">关闭 <kbd>Esc</kbd></button></header><div class="cd-log-tools"><span class="cd-log-count"></span><button type="button" class="cd-read-all">全部标为已读</button></div><div class="cd-log-list"></div><footer class="cd-log-storage">消息保存在当前浏览器，最多保留80条。</footer></dialog>`;
   // Keep the deck out of sight until its stylesheet applies; on a slow host it would otherwise flash unstyled.
@@ -58,6 +60,10 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
   const $ = selector => root.querySelector(selector);
   const refs = Object.fromEntries(['time','site','communications','heading','status','title','subtitle'].map(id=>[id,$(`.cd-${id}`)]));
   const dock = $('.cd-dock'), log = $('.cd-log'), toast = $('.cd-toast'), canvas = $('.cd-map');
+  const inventoryButton = $('.cd-inventory-button'), inventoryPop = $('.cd-inventory-pop');
+  const missionButton = $('.cd-mission-button'), missionPop = $('.cd-mission-pop');
+  // Action columns per dock width (see .cd-action-grid in the stylesheet): 3 narrow, 4 wide, 5 wider, 6 very wide.
+  const wideDock = matchMedia('(min-width:1001px)'), widerDock = matchMedia('(min-width:1100px)'), widestDock = matchMedia('(min-width:1500px)'), shortDock = matchMedia('(max-height:650px)');
   const context = canvas.getContext('2d');
   let snapshot = {}, destroyed = false, held = null, messages = [], shownId = null, toastTimer = null, lastFocus = null;
   let actionsExpanded = false, view = 'walk', viewMode = '';
@@ -144,7 +150,7 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
   }
   function openLog() {
     if(logOpen){closeLog();return;}
-    endHold();lastFocus=document.activeElement;logOpen=true;pauseToastTimer();refreshMessages();
+    showInventory(false);showMission(false);endHold();lastFocus=document.activeElement;logOpen=true;pauseToastTimer();refreshMessages();
     log.showModal();onOverlay(true);$('.cd-close-log').focus();
   }
   $('.cd-inbox-button').addEventListener('click',openLog);$('.cd-open-log').addEventListener('click',openLog);
@@ -155,8 +161,24 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
   log.addEventListener('click',event=>{if(event.target===log){const r=log.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeLog();}});
 
   $('.cd-more-actions').addEventListener('click',()=>{actionsExpanded=!actionsExpanded;update(snapshot);});
+  // Inventory and mission are looked at once, not watched: top-bar buttons open them over the scene, one at a time;
+  // Esc, a press anywhere outside, or choosing a card (the mission title) closes them again.
+  function showInventory(open){if(open)showMission(false);inventoryPop.hidden=!open;inventoryButton.setAttribute('aria-expanded',String(open));inventoryButton.classList.toggle('cd-active',open);}
+  function showMission(open){if(open)showInventory(false);missionPop.hidden=!open;missionButton.setAttribute('aria-expanded',String(open));missionButton.classList.toggle('cd-active',open);}
+  inventoryButton.addEventListener('click',()=>showInventory(inventoryPop.hidden));
+  missionButton.addEventListener('click',()=>showMission(missionPop.hidden));
+  $('.cd-close-inventory').addEventListener('click',()=>showInventory(false));
+  $('.cd-close-mission').addEventListener('click',()=>showMission(false));
+  inventoryPop.addEventListener('click',event=>{if(event.target.closest('.cd-bay'))showInventory(false);});
+  missionPop.addEventListener('click',event=>{if(event.target.closest('.cd-mission-title'))showMission(false);});
+  const outsidePops=event=>{
+    if(!inventoryPop.hidden&&!event.target.closest?.('.cd-inventory-pop,.cd-inventory-button'))showInventory(false);
+    if(!missionPop.hidden&&!event.target.closest?.('.cd-mission-pop,.cd-mission-button'))showMission(false);
+  };
+  document.addEventListener('pointerdown',outsidePops,true);
   canvas.addEventListener('click',()=>dispatch('map'));canvas.title='打开完整地图';
-  for(const [id,label] of modes){const b=node('button','',label);b.type='button';b.dataset.view=id;$('.cd-mode-tabs').append(b);}
+  if(extraModes.length)$('.cd-mode-tabs').style.gridTemplateColumns=`repeat(${liveModes.length},1fr)`;
+  for(const [id,label] of liveModes){const b=node('button','',label);b.type='button';b.dataset.view=id;$('.cd-mode-tabs').append(b);}
   // Tabs and the portrait arrows only choose which craft the identity card shows; taking control is the card's own button.
   function select(id){
     if(!Array.isArray(snapshot.subjects)||!snapshot.subjects.length){dispatch(`mode:${id}`);return;}
@@ -166,8 +188,8 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
     const pick=event.target.closest('button[data-view],button[data-step]');
     if(pick){
       if(pick.disabled)return;
-      const index=modes.findIndex(([id])=>id===view),step=Number(pick.dataset.step);
-      select(pick.dataset.view||modes[(index+step+modes.length)%modes.length][0]);return;
+      const index=liveModes.findIndex(([id])=>id===view),step=Number(pick.dataset.step);
+      select(pick.dataset.view||liveModes[(index+step+liveModes.length)%liveModes.length][0]);return;
     }
     const panel=event.target.closest('[data-panel]');
     if(panel?.tagName==='BUTTON'){
@@ -206,6 +228,7 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
       if(document.querySelector('dialog[open]')&&!logOpen)return;
       event.preventDefault();event.stopImmediatePropagation();openLog();
     }else if(event.key==='Escape'&&logOpen){event.preventDefault();event.stopImmediatePropagation();closeLog();}
+    else if(event.key==='Escape'&&(!inventoryPop.hidden||!missionPop.hidden)){event.preventDefault();event.stopImmediatePropagation();showInventory(false);showMission(false);}
     else if(event.key==='Enter'&&shownId&&!logOpen&&!event.target?.closest?.('button,a')){event.preventDefault();event.stopImmediatePropagation();readMessage(shownId);}
   };
   document.addEventListener('keydown',onKey,true);
@@ -266,7 +289,7 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
     // Looking is allowed while paused or mid-transfer; only taking control waits. Without subjects the tabs keep the old mode switch.
     root.querySelectorAll('.cd-mode-tabs button').forEach(button=>{const id=button.dataset.view;button.setAttribute('aria-pressed',String(id===shown));button.classList.toggle('cd-live',!!subjects.find(s=>s.id===id)?.live);button.disabled=!subjects.length&&!!snapshot.paused;});
     root.querySelectorAll('.cd-portrait-turn').forEach(button=>{button.hidden=!subjects.length;});
-    const index=modes.findIndex(([id])=>id===shown);text($('.cd-portrait-index'),subjects.length&&index>=0?`${index+1} / ${modes.length}`:'');
+    const index=liveModes.findIndex(([id])=>id===shown);text($('.cd-portrait-index'),subjects.length&&index>=0?`${index+1} / ${liveModes.length}`:'');
     text($('.cd-emblem'),{walk:'◉',survival:'◉',remote:'⊞',carrier:'▥',flight:'△',overview:'◎'}[shown]||'◎');
     const rows=subject?[{label:'状态',value:subject.state,tone:subject.tone,state:true},...(subject.rows||[])]:Array.isArray(snapshot.metrics)?snapshot.metrics:[];
     keyed($('.cd-metrics'),rows,()=>{const row=node('div');row.append(node('dt'),node('dd'));return row;},(row,m)=>{text(row.querySelector('dt'),m.label);text(row.querySelector('dd'),`${m.value??'—'}${m.unit?' '+m.unit:''}`);row.dataset.tone=tone(m.tone);row.classList.toggle('cd-state',!!m.state);},(m,i)=>`${view}:${i}:${m.label}`);
@@ -282,37 +305,44 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
     if(snapshot.paused&&!wasPaused){endHold();pauseToastTimer();}else if(!snapshot.paused&&wasPaused)armToastTimer();
     const mode=snapshot.mode||'overview';root.dataset.mode=mode;root.classList.toggle('cd-is-paused',!!snapshot.paused);
     text(refs.time,snapshot.time||'—');text(refs.site,snapshot.site||'—');text(refs.communications,snapshot.communications||'任务通信');
-    text(refs.status,snapshot.paused?'已暂停':snapshot.status||'');refs.status.hidden=!refs.status.textContent;
+    text(refs.status,snapshot.paused?(snapshot.holdStatus||'已暂停'):snapshot.status||'');refs.status.hidden=!refs.status.textContent;
     const heading=degrees(snapshot.heading);text(refs.heading,`${String(Math.round(heading)%360).padStart(3,'0')}°`);
     const tick=$('.cd-compass-ticks');const tickValues=[];
     for(let offset=-3;offset<=3;offset++){const value=Math.floor(heading/15)*15+offset*15;tickValues.push({id:String(offset),value,x:(value-heading)*3});}
     keyed(tick,tickValues,()=>node('span'),(el,t)=>{const d=degrees(t.value);text(el,{0:'N',90:'E',180:'S',270:'W'}[d]??String(d).padStart(3,'0'));el.style.transform=`translateX(${t.x}px)`;el.classList.toggle('cd-cardinal',d%90===0);});
     // A change of control brings the card to the craft now being operated.
-    if(mode!==viewMode){viewMode=mode;const live=mode==='survival'?'walk':mode;if(modes.some(([id])=>id===live))view=live;}
+    if(mode!==viewMode){viewMode=mode;const live=mode==='survival'?'walk':mode;if(liveModes.some(([id])=>id===live))view=live;}
     paintIdentity();
     const metrics=Array.isArray(snapshot.metrics)?snapshot.metrics:[];
-    keyed($('.cd-resource-bars'),metrics.filter(m=>pct(m.percent)!==null).slice(0,2),()=>{const bar=node('div','cd-bar');bar.append(node('i'),node('span'));return bar;},(bar,m)=>{bar.dataset.tone=tone(m.tone);bar.querySelector('i').style.width=`${pct(m.percent)}%`;text(bar.querySelector('span'),`${m.label} · ${m.value??'—'}${m.unit?' '+m.unit:''}`);},(m,i)=>`${i}:${m.label}`);
+    keyed($('.cd-resource-bars'),metrics.filter(m=>pct(m.percent)!==null).slice(0,2),()=>{const bar=node('div','cd-bar');bar.append(node('i'),node('span'));return bar;},(bar,m)=>{bar.dataset.tone=tone(m.tone);bar.querySelector('i').style.width=`${pct(m.percent)}%`;text(bar.querySelector('span'),m.bar||`${m.label} · ${m.value??'—'}${m.unit?' '+m.unit:''}`);},(m,i)=>`${i}:${m.label}`);
     keyed($('.cd-summon'),Array.isArray(snapshot.summon)?snapshot.summon:[],()=>{const button=node('button','cd-summon-button');button.type='button';button.innerHTML='<strong></strong><small></small>';return button;},(button,a)=>{
       button.dataset.action=a.id;button.disabled=!!a.disabled||!!snapshot.paused;button.classList.toggle('cd-active',!!a.active);button.classList.toggle('cd-ready',!a.disabled);
       text(button.querySelector('strong'),a.label);text(button.querySelector('small'),a.state||'');button.title=[a.label,a.state].filter(Boolean).join(' · ');
     });
     const actions=Array.isArray(snapshot.actions)?snapshot.actions:[];
     if(held&&(!actions.some(a=>a.id===held.id&&!a.disabled)||snapshot.paused))endHold();
-    keyed($('.cd-actions'),actionsExpanded?actions:actions.slice(0,6),()=>{const button=node('button','cd-action');button.type='button';button.innerHTML='<kbd></kbd><strong></strong><small></small>';return button;},(button,a)=>{
+    const emergency=snapshot.emergency,columns=widestDock.matches?8:widerDock.matches?7:wideDock.matches?6:4,rows=shortDock.matches?3:4,shown=columns*rows-(emergency?2:0),extra=$('.cd-actions-extra');
+    const makeAction=()=>{const button=node('button','cd-action');button.type='button';button.innerHTML='<kbd></kbd><strong></strong><small></small>';return button;};
+    const paintAction=(button,a)=>{
       button.dataset.action=a.id;button.dataset.hold=String(!!a.hold);button.disabled=!!a.disabled||!!snapshot.paused;
       button.classList.toggle('cd-active',!!a.active);button.classList.toggle('cd-ready',!a.disabled&&!a.active);
-      text(button.querySelector('kbd'),a.key?`${a.hold?'长按 ':''}${a.key}`:a.hold?'按住执行':'操作');text(button.querySelector('strong'),a.label);
+      text(button.querySelector('kbd'),a.key?`${a.hold?'长按 ':''}${a.key}`:a.hold?'长按':'');text(button.querySelector('strong'),a.label);
       const detail=a.disabled?(a.reason||a.detail||'当前条件不满足'):(a.detail||'');text(button.querySelector('small'),detail);button.title=[a.label,detail].filter(Boolean).join(' · ');
-    });$('.cd-empty-actions').hidden=actions.length>0;
-    const more=$('.cd-more-actions');more.hidden=actions.length<=6;more.setAttribute('aria-expanded',String(actionsExpanded));text(more,actionsExpanded?'收起更多操作':`更多操作 · ${actions.length-6} 项 ↓`);
-    const inventory=Array.isArray(snapshot.inventory)?snapshot.inventory:[];text($('.cd-inventory-count'),`[${inventory.length}]`);
+    };
+    // Two full rows stay in the dock, the emergency control pinned to the last cell; the rest open upward over the scene.
+    keyed($('.cd-actions'),actions.slice(0,shown),makeAction,paintAction);
+    keyed(extra,actionsExpanded?actions.slice(shown):[],makeAction,paintAction);extra.hidden=!actionsExpanded||actions.length<=shown;
+    $('.cd-empty-actions').hidden=actions.length>0;
+    const more=$('.cd-more-actions');more.hidden=actions.length<=shown;more.setAttribute('aria-expanded',String(actionsExpanded));text(more,actionsExpanded?'收起更多操作 ↓':`更多操作 · ${actions.length-shown} 项 ↑`);
+    const inventory=Array.isArray(snapshot.inventory)?snapshot.inventory:[];text($('.cd-inventory-count'),inventory.length);
     keyed($('.cd-inventory'),inventory,()=>{const button=node('button','cd-bay');button.type='button';button.innerHTML='<span></span><strong></strong><small></small>';return button;},(button,item)=>{
       button.dataset.action=item.id;button.disabled=!!item.disabled||!!snapshot.paused;text(button.querySelector('span'),item.label);text(button.querySelector('strong'),item.value);text(button.querySelector('small'),item.detail||'');button.title=[item.label,item.value,item.detail].filter(Boolean).join(' · ');
     });$('.cd-empty-inventory').hidden=inventory.length>0;
-    const mission=snapshot.mission||{};text($('.cd-mission-title'),mission.title||'任务详情');text($('.cd-mission-body'),mission.body||'暂无当前任务');
+    const mission=snapshot.mission||{},steps=Array.isArray(mission.steps)?mission.steps:[];text($('.cd-mission-title'),mission.title||'任务详情');text($('.cd-mission-body'),mission.body||'暂无当前任务');
+    const count=$('.cd-mission-count');count.hidden=!steps.length;text(count,`${steps.filter(step=>step.done).length}/${steps.length}`);
     const progress=pct(mission.progress);$('.cd-mission-progress').hidden=progress===null;if(progress!==null)$('.cd-mission-progress i').style.width=`${progress}%`;
-    keyed($('.cd-mission-steps'),mission.steps||[],()=>node('li'),(row,step)=>{text(row,`${step.done?'✓':'○'} ${step.label}`);row.classList.toggle('cd-done',!!step.done);},(step,i)=>i);
-    const emergency=snapshot.emergency,b=$('.cd-emergency');b.hidden=!emergency;if(emergency){b.dataset.action=emergency.id;b.disabled=!!emergency.disabled||!!snapshot.paused;text(b,`⚠ ${emergency.label}`);b.title=emergency.reason||emergency.label;}
+    keyed($('.cd-mission-steps'),steps,()=>node('li'),(row,step)=>{text(row,`${step.done?'✓':'○'} ${step.label}`);row.classList.toggle('cd-done',!!step.done);},(step,i)=>i);
+    const b=$('.cd-emergency');b.hidden=!emergency;if(emergency){b.dataset.action=emergency.id;b.disabled=!!emergency.disabled||!!snapshot.paused;text(b.querySelector('strong'),`⚠ ${emergency.label}`);text(b.querySelector('small'),emergency.disabled?emergency.reason||'':'');b.title=emergency.reason||emergency.label;}
     text($('.cd-map-button'),`${snapshot.navLabel||'周边导航'} · M`);
     const instruments=Array.isArray(snapshot.instruments)?snapshot.instruments:[];
     $('.cd-instrument-details').hidden=!instruments.length;
@@ -331,5 +361,5 @@ export function mountCommandDeck({onAction = () => {}, onOverlay = () => {}, onV
     drawMap();
   }
   refreshMessages();text($('.cd-log-storage'),storageWorks?'消息保存在当前浏览器，最多保留80条。':'浏览器未允许保存，消息仅保留在本次会话。');update({});
-  return {root,update,notify,view:()=>view,destroy(){if(destroyed)return;endHold();if(logOpen)closeLog();destroyed=true;clearTimeout(toastTimer);observer.disconnect();cancelAnimationFrame(mapFrame);document.removeEventListener('keydown',onKey,true);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('blur',blur);window.removeEventListener('pointerup',release);window.removeEventListener('pointercancel',release);root.remove();css.remove();if(!document.querySelector('.cd-root'))document.body.classList.remove('command-deck-active');}};
+  return {root,update,notify,view:()=>view,destroy(){if(destroyed)return;endHold();if(logOpen)closeLog();destroyed=true;clearTimeout(toastTimer);observer.disconnect();cancelAnimationFrame(mapFrame);document.removeEventListener('keydown',onKey,true);document.removeEventListener('pointerdown',outsidePops,true);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('blur',blur);window.removeEventListener('pointerup',release);window.removeEventListener('pointercancel',release);root.remove();css.remove();if(!document.querySelector('.cd-root'))document.body.classList.remove('command-deck-active');}};
 }

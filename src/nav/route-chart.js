@@ -1,7 +1,8 @@
 /**
  * 游隼航线图（由 tools/flight-nav.html 原型移植）。独立页与游戏覆盖层共用。
  * plan 模式：编辑航线并发送；transit 模式：巡航转场中显示本机沿线移动，可改航或中止。
- * 依赖 globalThis.MOLA（data/mola_4ppd.js），ES 模块需 http 打开。
+ * 默认以 globalThis.MOLA 作为全球底图；高程采样可注入通用 terrain source。
+ * ES 模块需 http 打开。
  */
 import { CRZ_KMH, CRZ_MAX_KM, R_MARS_KM, distanceKm as dist, courseDeg as course, interpolate as interp, destination as dest, buildLegs, legMinutes, routeTotals, wrapLon } from './flight-plan.js';
 import { decodeMola, shadedReliefCanvas } from '../lib/mola-grid.js';
@@ -31,10 +32,12 @@ export const RELICS = [
   { id:'ZHRG', cn:'祝融号', en:'Zhurong (Tianwen-1)', org:'CNSA · 中国', year:2021, kind:'巡视器', lat:25.07, lon:109.93, where:'乌托邦平原', status:'2022 年 5 月进入休眠后未再唤醒' },
 ];
 const ORIGIN = { id:'PPOS', cn:'游隼当前位置', en:'Present Position · NX07', kind:'营地' };
-const KIND = { '着陆器':['lander','#f5a524'], '巡视器':['rover','#22d3ee'], '坠毁点':['crash','#ff6b5b'], '直升机':['heli','#34d399'], '营地':['camp','#34d399'], '航路点':['user','#22d3ee'] };
+/* 任务首次降落点（前哨基地所在）。坐标由调用方从存档给出，航线里的 id 固定为 HOME。*/
+const HOME_ID = 'HOME', HOME_COLOR = '#34d399';
+const KIND = { '着陆器':['lander','#f5a524'], '巡视器':['rover','#22d3ee'], '坠毁点':['crash','#ff6b5b'], '直升机':['heli','#34d399'], '营地':['camp','#34d399'], '基地':['home',HOME_COLOR], '航路点':['user','#22d3ee'] };
 
-// MOLA 解码与底图只做一次，覆盖层反复开关不重算。
-let GRID = null, BASE = null;
+// 同一个 raster source 的晕渲只生成一次；高精度采样源可独立于全球底图。
+const RELIEF_CACHE = new WeakMap();
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const km = d => d >= 100 ? Math.round(d).toLocaleString('en-US') : d.toFixed(1);
@@ -53,8 +56,9 @@ const TEMPLATE = `<div class="rc-app" data-tab="fpl">
     <span>DIST <span class="num" data-rc="hDist">—</span></span>
     <span class="opt">ETE <span class="num" data-rc="hEte">—</span></span>
     <span class="opt">WX <span class="num" data-rc="hWx">—</span></span>
+    <span class="opt" data-rc="hSunWrap">☀ <span class="num" data-rc="hSun">—</span></span>
     <span class="rc-transit" data-rc="hTransit" hidden></span>
-    <span class="right opt">MOLA 4 px/° · 0–360°E</span>
+    <span class="right opt" data-rc="terrainSource">地形数据载入中</span>
     <button type="button" class="rc-close" data-rc="close" aria-label="关闭航线图">关闭 ✕</button>
   </header>
   <section class="rc-chart">
@@ -62,6 +66,7 @@ const TEMPLATE = `<div class="rc-app" data-tab="fpl">
     <button type="button" class="rc-layer-toggle" data-rc="layerToggle" aria-expanded="false">图层 ▾</button>
     <div class="rc-layers" data-rc="layers" role="group" aria-label="图层">
       <button type="button" data-layer="topo" aria-pressed="true">▦ 地形</button>
+      <button type="button" data-layer="daynight" aria-pressed="true">◐ 晨昏</button>
       <button type="button" data-layer="relics" aria-pressed="true">◈ 遗迹</button>
       <button type="button" data-layer="names" aria-pressed="true">A 地名</button>
       <button type="button" data-layer="grid" aria-pressed="true"># 经纬</button>
@@ -72,11 +77,12 @@ const TEMPLATE = `<div class="rc-app" data-tab="fpl">
       <button type="button" data-rc="zIn" aria-label="放大">+</button>
       <button type="button" data-rc="zOut" aria-label="缩小">−</button>
       <button type="button" data-rc="zOwn" aria-label="回到本机位置">⌖</button>
+      <button type="button" class="home" data-rc="zHome" aria-label="显示首次降落点 HOME">⌂</button>
       <button type="button" data-rc="zFit" aria-label="显示全航线">⤢</button>
     </div>
     <div class="rc-card" data-rc="card" hidden></div>
     <div class="rc-readout" data-rc="readout">点击地图查看坐标与海拔</div>
-    <div class="rc-hint">拖动平移 · 双指/滚轮缩放 · 点选遗迹 · 长按添加航路点 · 拖动 USR 点改航线</div>
+    <div class="rc-hint">拖动平移 · 双指/滚轮缩放 · 点选遗迹 · 长按添加航路点 · 拖动 USR 点改航线 · ⌂ 首次降落点</div>
     <div class="rc-busy" data-rc="busy">正在解码 MOLA 高程…</div>
   </section>
   <nav class="rc-tabs" role="tablist">
@@ -90,7 +96,7 @@ const TEMPLATE = `<div class="rc-app" data-tab="fpl">
       <ol class="rc-list" data-rc="fpl"></ol>
       <div class="rc-tot" data-rc="tot"></div>
       <div class="rc-wxline" data-rc="wxline" hidden></div>
-      <div class="rc-pacts"><button type="button" data-rc="bClr">清空</button><button type="button" class="abort" data-rc="bAbort" hidden>中止巡航 · 就近降落</button><button type="button" class="exec" data-rc="bExec">执行航线 ▶ 发送游隼</button></div>
+      <div class="rc-pacts"><button type="button" data-rc="bClr">清空</button><button type="button" class="home" data-rc="bHome">返航 ⌂</button><button type="button" class="abort" data-rc="bAbort" hidden>中止巡航 · 就近降落</button><button type="button" class="exec" data-rc="bExec">执行航线 ▶ 发送游隼</button></div>
       <p class="rc-fine" data-rc="fine">CRZ 大气巡航按游隼加速 972 km/h 估算；ORB 为入轨转移，用时是游戏转场抽象。超过 400 km 默认 ORB，点模式键可切换。起飞与降落为实时飞行，巡航段加速播放。</p>
     </div>
     <div class="rc-view" data-rc="relicView">
@@ -109,9 +115,14 @@ const TEMPLATE = `<div class="rc-app" data-tab="fpl">
 /**
  * @param {HTMLElement} host
  * @param {{getOwnship:()=>({lat:number,lon:number,heading?:number}), getPlan?:()=>Array|null,
- *   onSend?:(route:Array)=>string|void, onClose?:()=>void, onAbort?:()=>void, closable?:boolean}} options
+ *   getHome?:()=>({lat:number,lon:number,name?:string})|null,
+ *   getSolarTime?:()=>({dayFraction:number,refLon:number})|null,
+ *   onSend?:(route:Array)=>string|void, onClose?:()=>void, onAbort?:()=>void, closable?:boolean,
+ *   terrainSource?:{elevationKm:(lat:number,lon:number)=>number,label?:string}}} options
+ * getHome：任务首次降落点，画成 HOME 并可一键返航。getSolarTime：游戏昼夜钟（refLon 处的当地太阳时），
+ * 给了就让晨昏线与场景天色一致；不给则沿用气象页保存的时间。
  */
-export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend = () => {}, onClose = () => {}, onAbort = () => {}, closable = true } = {}) {
+export function mountRouteChart(host, { getOwnship, getPlan = () => null, getHome = () => null, getSolarTime = () => null, getTask = () => null, onSend = () => {}, onClose = () => {}, onAbort = () => {}, closable = true, terrainSource = null } = {}) {
   if (!document.querySelector('link[data-route-chart]')) {
     const link = document.createElement('link'); link.rel = 'stylesheet'; link.dataset.routeChart = '1';
     link.href = new URL('./route-chart.css', import.meta.url).href; document.head.append(link);
@@ -123,23 +134,43 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   const MONO = getComputedStyle(root).getPropertyValue('--mono') || 'monospace';
 
   let route = [], legs = [], active = 1, sel = null, userSeq = 0, loaded = false, dirtyPlan = false, transit = null, remainingKey = '';
-  const layers = { topo: true, relics: true, names: true, grid: true, rings: true, weather: true };
+  let GRID = null, BASE = null, TERRAIN = terrainSource;
+  const layers = { topo: true, daynight: true, relics: true, names: true, grid: true, rings: true, weather: true };
+  let home = null;
+  // 同一坐标保持同一对象：航线里的 HOME 航路点用 ref 指向它，换对象会让 indexOf 失配。
+  function refreshHome() {
+    const h = getHome();
+    if (!h || !Number.isFinite(h.lat) || !Number.isFinite(h.lon)) { home = null; return; }
+    const lon = wrapLon(h.lon);
+    if (home && home.lat === h.lat && home.lon === lon) return;
+    home = { id: HOME_ID, cn: '首次降落点', en: 'First Landing Site · Outpost', kind: '基地', lat: h.lat, lon, where: h.name || '前哨基地' };
+  }
+  refreshHome();
   let weather = null, wxTime = { sol: 454, dayFraction: .55, refLon: 0 }, wxRoute = null, wxShade = null, wxShadeKey = '';
   const W = () => GRID.W, H = () => GRID.H, PPD = () => GRID.W / 360;
-  const elevAt = (lat, lon) => GRID.elevationKm(lat, lon);
+  const elevAt = (lat, lon) => {
+    const h = TERRAIN?.elevationKm?.(lat, lon);
+    return Number.isFinite(h) ? h : GRID.elevationKm(lat, lon);
+  };
 
   function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 2600); }
   function origin(p) { return { ...ORIGIN, lat: p.lat, lon: wrapLon(p.lon), ref: ORIGIN, user: false, mode: 'auto' }; }
   function loadWxTime() {
     let v = null; try { v = JSON.parse(localStorage.getItem(WX_KEY) || 'null'); } catch {}
-    wxTime = { sol: Number.isFinite(v?.sol) ? v.sol : 454, dayFraction: Number.isFinite(v?.dayFraction) ? v.dayFraction : .55, refLon: route[0]?.lon ?? 0 };
+    // 游戏里打开时以场景昼夜钟为准：地图上本机所在的明暗，和关掉地图后看到的天色是同一个时刻。
+    const sun = getSolarTime(), synced = Number.isFinite(sun?.dayFraction) && Number.isFinite(sun?.refLon);
+    wxTime = { sol: Number.isFinite(v?.sol) ? v.sol : 454,
+      dayFraction: synced ? sun.dayFraction : Number.isFinite(v?.dayFraction) ? v.dayFraction : .55,
+      refLon: synced ? wrapLon(sun.refLon) : route[0]?.lon ?? 0 };
     if (weather && v?.scenario) weather.setScenario(v.scenario);
   }
   const wxBrief = p => { if (!weather) return '—'; const w = weather.sample(p.lat, p.lon, wxTime); return `${w.hazard.label} · τ ${w.tau.toFixed(2)} · 能见度 ${w.visibilityKm >= 79.5 ? '>80' : w.visibilityKm.toFixed(w.visibilityKm < 10 ? 1 : 0)} km · 光伏 ${Math.round(w.solarFactor * 100)}% · LMST ${w.lmst}`; };
 
   const wp = o => ({ id: o.id, cn: o.cn, lat: o.lat, lon: o.lon, ref: o, user: !!o.user, mode: o.mode || 'auto' });
-  const fromSaved = w => relic(w.id) ? { ...wp(relic(w.id)), mode: w.mode || 'auto' } : { id: w.id, cn: '用户航路点', lat: +w.lat, lon: +w.lon, ref: null, user: true, mode: w.mode || 'auto' };
+  const known = id => id === HOME_ID ? home : relic(id);
+  const fromSaved = w => known(w.id) ? { ...wp(known(w.id)), mode: w.mode || 'auto' } : { id: w.id, cn: '用户航路点', lat: +w.lat, lon: +w.lon, ref: null, user: true, mode: w.mode || 'auto' };
   function loadRoute() {
+    refreshHome();
     const own = getOwnship(), saved = getPlan();
     route = [origin(own), ...(Array.isArray(saved) ? saved.slice(1).map(fromSaved) : [])];
     loaded = true; dirtyPlan = false;
@@ -251,10 +282,28 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
       }
     }
 
-    if (layers.weather && weather) {
-      const key = `${wxTime.sol}|${wxTime.dayFraction.toFixed(3)}`;
-      if (key !== wxShadeKey) { wxShade = WXW.nightShadeCanvas(wxTime, { alpha: .45 }); wxShadeKey = key; }
+    // 晨昏：夜半球压暗（太阳高度 +6° 到 −6° 之间渐变），再描一条太阳高度 0° 的晨昏线和日下点。
+    const dayMarks = [];
+    if (layers.daynight) {
+      const key = `${wxTime.sol}|${wxTime.dayFraction.toFixed(4)}|${wxTime.refLon.toFixed(3)}`;
+      if (key !== wxShadeKey) { wxShade = WXW.nightShadeCanvas(wxTime, { cols: 360, rows: 180, alpha: .62 }); wxShadeKey = key; }
+      g.imageSmoothingEnabled = true;
       for (let x = view.ox; x < cw; x += bw) g.drawImage(wxShade, x, view.oy, bw, bh);
+      const line = WXM.terminatorPoints(wxTime, 240).map(p => [p.lon * ppd, (90 - p.lat) * ppd]);
+      g.lineWidth = 4; g.strokeStyle = 'rgba(3,6,10,.4)'; strokePoly(g, line);
+      g.lineWidth = 1.6; g.strokeStyle = 'rgba(245,183,111,.92)'; strokePoly(g, line);
+      const sun = WXM.subsolarPoint(wxTime);
+      for (const [X, Y] of copies(...toBase(sun.lat, sun.lon))) {
+        g.strokeStyle = '#ffd27a'; g.lineWidth = 1.4; g.beginPath();
+        for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; g.moveTo(X + Math.cos(a) * 8, Y + Math.sin(a) * 8); g.lineTo(X + Math.cos(a) * 11, Y + Math.sin(a) * 11); }
+        g.stroke(); g.fillStyle = '#ffd27a'; g.beginPath(); g.arc(X, Y, 5, 0, 7); g.fill();
+        reserve(X, Y, 11); dayMarks.push(['日下点', X, Y + 24]);
+      }
+      // 赤道上的晨昏线与经度无关地落在日下点 ±90°：西侧是晨线（06:00），东侧是昏线（18:00）。
+      for (const [t, dl] of [['晨线 06:00', -90], ['昏线 18:00', 90]]) for (const [X, Y] of copies(...toBase(0, sun.lon + dl))) dayMarks.push([t, X, Y - 8]);
+    }
+
+    if (layers.weather && weather) {
       WXW.drawStormLayer(g, weather.storms(wxTime), { toScreen: (la, lo) => copies(...toBase(la, lo), 600), pxPerDeg: ppd * s, width: cw, height: ch, font: `10px ${MONO}` });
     }
 
@@ -280,7 +329,7 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
     g.setLineDash([]);
 
     // 符号：遗迹 → 航路点 → 本机
-    const inRoute = new Set(route.map(w => w.ref).filter(Boolean)), relicPos = [];
+    const inRoute = new Set(route.map(w => w.ref).filter(Boolean)), relicPos = [], task = getTask();
     if (layers.relics) for (const r of RELICS) {
       const [cls, col] = KIND[r.kind] || KIND['着陆器'], [bx, by] = toBase(r.lat, r.lon);
       for (const [X, Y] of copies(bx, by)) {
@@ -288,7 +337,27 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
         g.beginPath(); g.arc(X, Y, 7, 0, 7); g.fill(); g.stroke();
         if (cls === 'crash') { g.beginPath(); g.moveTo(X - 3.5, Y - 3.5); g.lineTo(X + 3.5, Y + 3.5); g.moveTo(X + 3.5, Y - 3.5); g.lineTo(X - 3.5, Y + 3.5); g.stroke(); }
         else { g.fillStyle = col; g.beginPath(); g.moveTo(X, Y - 4); g.lineTo(X + 4, Y); g.lineTo(X, Y + 4); g.lineTo(X - 4, Y); g.closePath(); g.fill(); }
-        reserve(X, Y, 9); relicPos.push([r, X, Y]);
+        // 当前遗迹任务（D65）：外面再套一圈洋红，和航线高亮同色。
+        if (r.id === task) { g.lineWidth = 2; g.strokeStyle = '#ff4fd8'; g.beginPath(); g.arc(X, Y, 12, 0, 7); g.stroke(); }
+        reserve(X, Y, r.id === task ? 14 : 9); relicPos.push([r, X, Y]);
+      }
+    }
+    // HOME：首次降落点。不跟遗迹图层走，任何时候都画；另从本机拉一条绿色虚线指回去。
+    const homePos = [], homeInRoute = !!home && inRoute.has(home), homeKm = home ? dist(own, home) : 0;
+    if (home) {
+      if (homeKm > .5 && !homeInRoute) {
+        const n = clamp(Math.ceil(homeKm / 40), 12, 240), pts = []; let ref = null;
+        for (let j = 0; j <= n; j++) { const p = interp(own, home, j / n); let [bx, by] = toBase(p.lat, p.lon); if (ref !== null) { while (bx - ref > W() / 2) bx -= W(); while (ref - bx > W() / 2) bx += W(); } ref = bx; pts.push([bx, by]); }
+        g.setLineDash([5, 5]); g.lineWidth = 1.8; g.strokeStyle = 'rgba(52,211,153,.85)'; strokePoly(g, pts); g.setLineDash([]);
+      }
+      const isSel = sel && sel.obj === home;
+      for (const [X, Y] of copies(...toBase(home.lat, home.lon))) {
+        g.strokeStyle = 'rgba(52,211,153,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(X, Y, 15, 0, 7); g.stroke();
+        g.save(); g.translate(X, Y); g.fillStyle = HOME_COLOR; g.strokeStyle = '#03060a'; g.lineWidth = 1.5;
+        g.beginPath(); g.moveTo(0, -10); g.lineTo(9, -2); g.lineTo(7, -2); g.lineTo(7, 8); g.lineTo(-7, 8); g.lineTo(-7, -2); g.lineTo(-9, -2); g.closePath(); g.fill(); g.stroke();
+        g.fillStyle = '#03060a'; g.fillRect(-2, 2, 4, 6); g.restore();
+        if (isSel) { g.setLineDash([3, 3]); g.strokeStyle = '#f5a524'; g.lineWidth = 1.5; g.beginPath(); g.arc(X, Y, 21, 0, 7); g.stroke(); g.setLineDash([]); }
+        reserve(X, Y, 16); homePos.push([X, Y]);
       }
     }
     const wptPos = [];
@@ -297,7 +366,7 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
       const [bx, by] = toBase(w.lat, w.lon), on = i === active, isSel = sel && ((sel.type === 'wpt' && sel.i === i) || sel.obj === w.ref);
       for (const [X, Y] of copies(bx, by)) {
         if (w.user) { g.fillStyle = on ? '#ff4fd8' : '#22d3ee'; g.beginPath(); g.moveTo(X, Y - 8); g.lineTo(X + 7, Y + 5); g.lineTo(X - 7, Y + 5); g.closePath(); g.fill(); g.strokeStyle = '#03060a'; g.lineWidth = 1; g.stroke(); }
-        else if (!layers.relics) { g.fillStyle = '#060b10'; g.strokeStyle = '#e8eef4'; g.lineWidth = 2; g.beginPath(); g.arc(X, Y, 5, 0, 7); g.fill(); g.stroke(); }
+        else if (!layers.relics && w.ref !== home) { g.fillStyle = '#060b10'; g.strokeStyle = '#e8eef4'; g.lineWidth = 2; g.beginPath(); g.arc(X, Y, 5, 0, 7); g.fill(); g.stroke(); }
         if (w.ref) { g.strokeStyle = on ? '#ff4fd8' : 'rgba(232,238,244,.85)'; g.lineWidth = on ? 2.4 : 1.4; g.beginPath(); g.arc(X, Y, 12, 0, 7); g.stroke(); }
         if (isSel) { g.setLineDash([3, 3]); g.strokeStyle = '#f5a524'; g.lineWidth = 1.5; g.beginPath(); g.arc(X, Y, 18, 0, 7); g.stroke(); g.setLineDash([]); }
         reserve(X, Y, 13); wptPos.push([w, i, X, Y, on]);
@@ -314,13 +383,17 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
 
     // 标签：重要的先放，放不下的让位
     for (const [X, Y] of ownPos) place(transit ? `NX07 · ${transit.mode}` : 'NX07', X, Y + 28, 10, transit ? '#ff4fd8' : '#22d3ee', { align: 'center', bold: true, force: true });
+    if (!homeInRoute) for (const [X, Y] of homePos) {
+      const lines = [[HOME_ID, 11, HOME_COLOR, true], [homeKm < 3 ? '首次降落点 · 本机在此' : `首次降落点 · ${km(homeKm)} km`, 10, '#a7f3d0']];
+      if (!placeLines(lines, X + 19, Y + 4) && !placeLines(lines, X - 19, Y + 4, { align: 'right' })) placeLines(lines, X, Y - 30, { align: 'center', force: true });
+    }
     for (const [w, i, X, Y, on] of wptPos) {
       const color = on ? '#ff4fd8' : '#ffffff', lines = [[w.id, 11, color, true], ...(w.ref ? [[w.cn, 10, '#93a6b4']] : [])];
       if (!placeLines(lines, X + 15, Y + 4) && !placeLines(lines, X - 15, Y + 4, { align: 'right' })) placeLines(lines, X, Y - 16 - (lines.length - 1) * 11, { align: 'center', force: true });
     }
     for (const [r, X, Y] of relicPos) {
       if (inRoute.has(r)) continue;
-      const lines = [[r.id, 11, '#dfe6ec', true], [r.cn, 10, '#93a6b4']];
+      const lines = r.id === task ? [[`任务 · ${r.id}`, 11, '#ff4fd8', true], [r.cn, 10, '#dfe6ec']] : [[r.id, 11, '#dfe6ec', true], [r.cn, 10, '#93a6b4']];
       placeLines(lines, X + 13, Y + 4) || placeLines(lines, X - 13, Y + 4, { align: 'right' });
     }
     legs.forEach(L => {
@@ -339,6 +412,7 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
       }
     });
     for (const [t, bx, by] of ringLabels) for (const [X, Y] of copies(bx, by)) place(t, X, Y - 4, 10, 'rgba(34,211,238,.8)', { align: 'center' });
+    for (const [t, X, Y] of dayMarks) place(t, X, Y, 10, 'rgba(245,183,111,.95)', { align: 'center' });
     if (layers.names) {
       for (const [cn, en, lat, lon, prio, kind] of PLACES) {
         if (kind === 'site' || (prio === 1 && s < .75) || (prio === 2 && s < 2.2) || (prio === 3 && s < 4.5)) continue;
@@ -439,13 +513,14 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
     if (weather) {
       const lv = wxRoute ? wxRoute.worstLevel : 0, color = WXW.HAZARD_COLORS[lv], cross = wxRoute?.crossings || [];
       const link = new URL('../../tools/mars-weather.html', import.meta.url).href;
-      wxEl.innerHTML = `☁ SOL ${wxTime.sol} · 本机 LMST ${WXM.lmst(WXM.localFraction(wxTime, own.lon))} · 航线最差 <b style="color:${color}">${WXM.HAZARD_LABELS[lv]}</b>${cross.length ? ` · 穿越 ${cross.map(c => `${c.id}（LEG ${c.leg}，τ ${c.maxTau.toFixed(1)}）`).join('、')}` : ' · 未穿越尘暴'} · 天气只作提示，不拦截飞行 · <a href="${link}" target="_blank" rel="noopener">气象视角 ↗</a>`;
+      wxEl.innerHTML = `☁ SOL ${wxTime.sol} · 航线最差 <b style="color:${color}">${WXM.HAZARD_LABELS[lv]}</b>${cross.length ? ` · 穿越 ${cross.map(c => `${c.id}（LEG ${c.leg}，τ ${c.maxTau.toFixed(1)}）`).join('、')}` : ' · 未穿越尘暴'} · 天气只作提示，不拦截飞行 · <a href="${link}" target="_blank" rel="noopener">气象视角 ↗</a>`;
       $('hWx').textContent = WXM.HAZARD_LABELS[lv]; $('hWx').style.color = color;
     }
     $('hRoute').textContent = route.map(w => w.id).join(' › ');
-    $('relics').innerHTML = RELICS.map(r => ({ r, d: dist(own, r) })).sort((a, b) => a.d - b.d).map(({ r, d }) => {
+    const task = getTask();
+    $('relics').innerHTML = RELICS.map(r => ({ r, d: dist(own, r) })).sort((a, b) => (b.r.id === task) - (a.r.id === task) || a.d - b.d).map(({ r, d }) => {
       const inRoute = route.some(w => w.ref === r);
-      return `<li class="rc-rel${sel?.obj === r ? ' on' : ''}" data-id="${r.id}"><i class="rc-sym ${KIND[r.kind][0]}"></i><div><b>${r.id}</b> ${r.cn}<small>${r.year} · ${r.kind} · ${r.where}</small></div><span>${km(d)} km</span><button type="button" data-act="${inRoute ? 'remove' : 'add'}" aria-label="${inRoute ? '移出航线' : '加入航线'}">${inRoute ? '−' : '+'}</button></li>`;
+      return `<li class="rc-rel${sel?.obj === r ? ' on' : ''}${r.id === task ? ' task' : ''}" data-id="${r.id}"><i class="rc-sym ${KIND[r.kind][0]}"></i><div>${r.id === task ? '<em>任务</em> ' : ''}<b>${r.id}</b> ${r.cn}<small>${r.year} · ${r.kind} · ${r.where}</small></div><span>${km(d)} km</span><button type="button" data-act="${inRoute ? 'remove' : 'add'}" aria-label="${inRoute ? '移出航线' : '加入航线'}">${inRoute ? '−' : '+'}</button></li>`;
     }).join('');
     $('relCount').textContent = `${RELICS.length} 处`;
     renderChrome();
@@ -461,6 +536,12 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   function renderChrome() {
     $('close').hidden = !closable || !!transit;
     $('bClr').hidden = !!transit; $('bAbort').hidden = !transit;
+    $('bHome').hidden = !home; $('zHome').hidden = !home;
+    const own = route[0];
+    if (own) {
+      const f = WXM.localFraction(wxTime, own.lon), el = WXM.sunElevationDeg(own.lat, own.lon, wxTime);
+      $('hSun').textContent = `LMST ${WXM.lmst(f)} · ${el > 6 ? '白天' : el < -6 ? '夜间' : f < .5 ? '晨' : '昏'}`;
+    }
     $('bExec').textContent = transit ? '改航 ▶ 发送游隼' : '执行航线 ▶ 发送游隼';
     const tr = $('hTransit'); tr.hidden = !transit;
     if (transit) tr.textContent = `CRUISE · LEG ${transit.leg} ${transit.mode} · 剩余 ${km(transit.kmLeft)} km · ${clock(transit.secondsLeft)}${dirtyPlan ? ' · 航线已改，未发送' : ''}`;
@@ -474,7 +555,15 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
     if (!p) { sel = null; c.hidden = true; return; }
     const d = dist(own, p), elev = elevAt(p.lat, p.lon).toFixed(2);
     const far = `${km(d)} km · 航向 ${deg3(course(own, p))}° · ${d <= CRZ_MAX_KM ? '可大气巡航' : '需入轨转移'}`;
-    if (sel.type === 'relic' || (sel.type === 'wpt' && route[sel.i].ref && route[sel.i].ref !== ORIGIN)) {
+    if (sel.type === 'home' || (sel.type === 'wpt' && home && route[sel.i]?.ref === home)) {
+      const inRoute = route.some(w => w.ref === home);
+      c.style.borderLeftColor = HOME_COLOR;
+      c.innerHTML = `<header><i class="rc-sym home"></i><b>${HOME_ID}</b><span class="en">${home.en}</span><button type="button" class="x" data-act="close" aria-label="关闭">×</button></header>
+        <h3>${home.cn} · ${home.where}</h3>
+        <dl><dt>位置</dt><dd>${fmtLat(home.lat)} ${fmtLon(home.lon)}</dd><dt>海拔</dt><dd>${elev} km（MOLA）</dd><dt>距本机</dt><dd>${d < .5 ? '本机就在这里' : far}</dd><dt>天气</dt><dd>${wxBrief(home)}</dd></dl>
+        <p class="rc-fine">任务第一次降落的地方，前哨基地和生活舱都在这里。返航以原停机坪为降落目标。</p>
+        <div class="rc-cardacts"><button type="button" class="go" data-act="direct">直飞返航 DIRECT →</button><button type="button" data-act="${inRoute ? 'remove' : 'add'}">${inRoute ? '移出航线' : '加入航线 +'}</button></div>`;
+    } else if (sel.type === 'relic' || (sel.type === 'wpt' && route[sel.i].ref && route[sel.i].ref !== ORIGIN)) {
       const r = sel.obj || route[sel.i].ref, inRoute = route.some(w => w.ref === r), [cls, col] = KIND[r.kind];
       c.style.borderLeftColor = col;
       c.innerHTML = `<header><i class="rc-sym ${cls}"></i><b>${r.id}</b><span class="en">${r.en}</span><button type="button" class="x" data-act="close" aria-label="关闭">×</button></header>
@@ -505,7 +594,7 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   /* ---------- 航线操作 ---------- */
   function targetOfSel() {
     if (!sel) return null;
-    if (sel.type === 'relic') return sel.obj;
+    if (sel.type === 'relic' || sel.type === 'home') return sel.obj;
     if (sel.type === 'wpt') return route[sel.i];
     return { id: nextUserId(), cn: '用户航路点', lat: sel.lat, lon: sel.lon, user: true };
   }
@@ -539,6 +628,8 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   function hitTest(x, y) {
     const R = coarse ? 26 : 18; let best = null, bd = R;
     route.forEach((w, i) => { for (const [X, Y] of copies(...toBase(w.lat, w.lon))) { const d = Math.hypot(X - x, Y - y); if (d < bd) { bd = d; best = { type: 'wpt', i }; } } });
+    if (best) return best;
+    if (home) for (const [X, Y] of copies(...toBase(home.lat, home.lon))) { const d = Math.hypot(X - x, Y - y); if (d < bd) { bd = d; best = { type: 'home', obj: home }; } }
     if (best) return best;
     if (layers.relics) for (const r of RELICS) for (const [X, Y] of copies(...toBase(r.lat, r.lon))) { const d = Math.hypot(X - x, Y - y); if (d < bd) { bd = d; best = { type: 'relic', obj: r }; } }
     return best;
@@ -600,7 +691,7 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   function onTap({ x0, y0, hit }) {
     readout(x0, y0);
     if (hit?.type === 'wpt') { sel = { type: 'wpt', i: hit.i }; if (hit.i > 0) active = hit.i; }
-    else if (hit?.type === 'relic') sel = { type: 'relic', obj: hit.obj };
+    else if (hit?.type === 'relic' || hit?.type === 'home') sel = { type: hit.type, obj: hit.obj };
     else sel = { type: 'point', ...screenToGeo(x0, y0) };
     renderPanel(); dirty();
   }
@@ -647,6 +738,17 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   $('zOut').onclick = () => zoomAt(cw / 2, ch / 2, 1 / 1.6);
   $('zOwn').onclick = () => centerOn(route[0], Math.max(view.s, 4));
   $('zFit').onclick = () => fitRoute();
+  let wantHome = false;
+  function focusHome() { if (!home) return; sel = { type: 'home', obj: home }; renderPanel(); centerOn(home, Math.max(view.s, 8)); }
+  $('zHome').onclick = focusHome;
+  // 返航：航线直接改成 本机 → HOME，还要点“执行航线”才发送，和其他改航一样可以反悔。
+  $('bHome').onclick = () => {
+    if (!home) return;
+    const d = dist(route[0], home);
+    if (d < .5) { toast('本机已在首次降落点'); return; }
+    route = [route[0], wp(home)]; active = 1; sel = null; edited(); update({ fit: true });
+    toast(`返航 HOME · ${deg3(legs[0].crs)}° · ${km(d)} km · 点“${transit ? '改航' : '执行航线'}”出发`);
+  };
   $('bClr').onclick = () => { route = [route[0]]; sel = null; active = 1; edited(); update(); toast('航线已清空，起点保留'); };
   $('bAbort').onclick = () => onAbort();
   $('bExec').onclick = () => {
@@ -676,18 +778,30 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   addEventListener('storage', e => { if (e.key === WX_KEY && weather && root.open) { loadWxTime(); wxShadeKey = ''; update(); } });
 
   function ready() {
+    if (!TERRAIN) TERRAIN = GRID;
+    const highLabel = TERRAIN?.label || (Array.isArray(TERRAIN?.sources) ? `多源 DEM ×${TERRAIN.sources.length}` : null);
+    $('terrainSource').textContent = highLabel && TERRAIN !== GRID ? `${GRID.label || '全球底图'} · ${highLabel}` : `${GRID.label || '火星高程'} · 0–360°E`;
     if (!weather) { weather = WXM.createMarsWeather({ seed: 1, elevationKm: (la, lo) => elevAt(la, lo) }); }
+    refreshHome();
     if (!loaded) loadRoute(); else syncOrigin();
     loadWxTime(); resize(); computeLegs(); renderPanel(); fitRoute();
+    if (wantHome) { wantHome = false; focusHome(); }
     $('busy').hidden = true;
   }
   function open() {
     if (root.open) return;
     try { root.showModal(); } catch { root.setAttribute('open', ''); }
     if (GRID) { ready(); return; }
-    if (!globalThis.MOLA) { $('busy').textContent = '缺少 data/mola_4ppd.js，无法加载地形'; return; }
+    const suppliedRaster = terrainSource?.W && terrainSource?.H && terrainSource?.E ? terrainSource : null;
+    if (!suppliedRaster && !globalThis.MOLA) { $('busy').textContent = '缺少全球地形底图；请加载 MOLA fallback 或注入 raster terrain source'; return; }
     $('busy').hidden = false;
-    setTimeout(() => { GRID = GRID || decodeMola(); BASE = BASE || shadedReliefCanvas(GRID); if (root.open) ready(); }, 30);
+    setTimeout(() => {
+      GRID = suppliedRaster || decodeMola();
+      TERRAIN = TERRAIN || GRID;
+      BASE = RELIEF_CACHE.get(GRID);
+      if (!BASE) { BASE = shadedReliefCanvas(GRID); RELIEF_CACHE.set(GRID, BASE); }
+      if (root.open) ready();
+    }, 30);
   }
   function close() {
     if (!root.open) return;
@@ -713,6 +827,8 @@ export function mountRouteChart(host, { getOwnship, getPlan = () => null, onSend
   }
   return {
     open, close, setTransit,
+    /** 跳到 HOME 并弹出卡片；地形还在解码时等 ready 再做。*/
+    focusHome() { if (GRID && root.open && cw) focusHome(); else wantHome = true; },
     /** 外部发送或到达后重读存档航线（未在编辑时）。*/
     reload() { if (!transit) { loadRoute(); if (GRID && root.open) update({ fit: true }); } },
     get isOpen() { return root.open; },

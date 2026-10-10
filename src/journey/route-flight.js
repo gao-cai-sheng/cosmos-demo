@@ -1,29 +1,38 @@
 /**
  * NX07 按航线飞行（设计：docs/superpowers/specs/2026-09-14-route-chart-flight-design.md，因果见 DISCUSSION_LOG D15）。
  * 远程航线：起飞后实时掠地飞行 → 淡出进入全屏航线图加速巡航 → 换到终点地表场景 → 实时掠地进场并垂直降落（D16）。
- * 本地航线（6.4 km 内）全程实时飞行。
+ * 本地航线（LOCAL_KM = 8 km 内）全程实时飞行。
  */
 import { mountRouteChart } from '../nav/route-chart.js';
+import { createDefaultMarsTerrain } from '../lib/terrain-defaults.js';
 import { buildLegs, routeTotals, transitSeconds, transitState, isLocalRoute, courseToYaw, courseDeg, loadPlan, savePlan, savePpos, SKIM } from '../nav/flight-plan.js';
 import { localToGeo, geoToLocal } from './route.js';
-import { sceneURL } from './state.js';
+import { sceneURL, getJourney } from './state.js';
+import { ARRIVAL_BASE } from './landing-support.js';
 
 // ORBIT_ENTRY_M: the same 600 m AGL gate NX07 climbs through when it leaves for orbit (flight.js orbit()).
-const PASS_M = 80, SAVE_EVERY_S = 2, ARRIVAL_POINT = { x: -65, z: -38, heading: 0 }, ORBIT_ENTRY_M = 600;
+const PASS_M = 80, SAVE_EVERY_S = 2, ARRIVAL_POINT = ARRIVAL_BASE, ORBIT_ENTRY_M = 600;
 const PHASE_LABEL = { idle: '待命', local: '本地航线飞行', climb: '起飞掠地', fading: '转入航线图', cruise: '巡航转场', leaving: '抵达 · 切换场景', 'arrive-wait': '抵达 · 等待模型', descend: '掠地进场 · 自动降落' };
 const yawToCourse = yaw => ((180 - yaw * 180 / Math.PI) % 360 + 360) % 360;
 
+// home: the mission's first landing site (outpost). solarTime: the scene's day clock as {dayFraction, refLon}.
 export function createRouteFlight({ flyer, site, findLandingSpot, notify, setOverlay, arrival = null, shipReady = () => true, onShipReady = () => {}, onDepart = () => {},
-  navigate = href => location.assign(href), storage = globalThis.localStorage }) {
-  let phase = arrival ? 'arrive-wait' : 'idle', chart = null, transit = null, saveClock = 0, memoryPlan = null;
+  home = null, solarTime = () => null, navigate = href => location.assign(href), storage = globalThis.localStorage }) {
+  let phase = arrival ? 'arrive-wait' : 'idle', chart = null, transit = null, saveClock = 0, memoryPlan = null, terrainSource = null;
   const shipGeo = () => localToGeo(flyer.position, site);
   const fraction = () => transit ? Math.min(1, transit.elapsed / transit.seconds) : 0;
   const plan = () => { const saved = loadPlan(storage, shipGeo()); return saved || memoryPlan; };
 
   function ensureChart() {
+    if (!terrainSource && globalThis.MOLA) {
+      terrainSource = createDefaultMarsTerrain({ onError: err => console.warn('[COSMOS terrain]', err) });
+    }
     if (!chart) chart = mountRouteChart(document.body, {
+      terrainSource,
       getOwnship: () => ({ ...shipGeo(), heading: yawToCourse(flyer.heading) }),
       getPlan: () => plan()?.route || null,
+      getHome: () => home, getSolarTime: solarTime,
+      getTask: () => getJourney()?.relics?.active ?? null,
       onSend: send, onAbort: abort,
       onClose: () => { if (phase !== 'cruise' && phase !== 'leaving') setOverlay(false); },
     });
@@ -33,6 +42,7 @@ export function createRouteFlight({ flyer, site, findLandingSpot, notify, setOve
     if (phase === 'cruise' || phase === 'leaving') return;
     setOverlay(true); ensureChart().open();
   }
+  function openHome() { open(); chart?.focusHome(); }
   function send(route) {
     if (route.length < 2) return '至少需要一个目的地';
     const saved = savePlan(storage, route, true);
@@ -40,6 +50,12 @@ export function createRouteFlight({ flyer, site, findLandingSpot, notify, setOve
     if (phase === 'cruise') { beginCruise(route, { reroute: true }); return '已改航 · 从当前位置按新航线巡航'; }
     if (flyer.active && !flyer.landing && !flyer.transferring) { chart?.close(); start(route); return ''; }
     return saved ? '航线已发送游隼 · 登上 NX07 后在操作台点“按航线飞行”' : '无法写入本机存储：航线只在本页有效';
+  }
+  /** 地图（M）选了本地范围外的目标：从当前位置直飞过去，和航线图里点「执行航线」一样。返回给玩家看的话，已起飞时为空。*/
+  function flyTo(t) {
+    const own = shipGeo(), message = send([{ id: 'PPOS', lat: own.lat, lon: own.lon, mode: 'auto' }, { id: t.id, lat: t.lat, lon: t.lon, mode: 'auto' }]);
+    chart?.reload();
+    return message;
   }
   function start(route = plan()?.sent ? plan().route : null) {
     if (!route || route.length < 2) { notify('没有已发送的航线。先打开航线图规划并发送。'); return false; }
@@ -68,9 +84,13 @@ export function createRouteFlight({ flyer, site, findLandingSpot, notify, setOve
     requestAnimationFrame(() => { fade.style.opacity = '1'; });
     setTimeout(() => { if (phase === 'fading') next(); requestAnimationFrame(() => { fade.style.opacity = '0'; }); }, 650);
   }
-  // All waypoints inside the local terrain: fly through them for real and land at the last one.
+  // All waypoints inside the local range: fly through them for real and land at the last one.
   function startLocal(r) {
-    const pts = r.slice(1).map(w => ({ id: w.id, ...geoToLocal(w, site) }));
+    // HOME ends on NX07's own pad beside the outpost (the same spot a route arrival from afar uses), not on the outpost itself.
+    const pts = r.slice(1).map(w => {
+      const p = geoToLocal(w, site);
+      return w.id === 'HOME' && home ? { id: w.id, x: p.x + ARRIVAL_BASE.x, z: p.z + ARRIVAL_BASE.z } : { id: w.id, ...p };
+    });
     let index = 0, spot = null, searched = false;
     const track = () => {
       const p = flyer.position;
@@ -163,7 +183,7 @@ export function createRouteFlight({ flyer, site, findLandingSpot, notify, setOve
     if (saveClock >= SAVE_EVERY_S && shipReady()) { saveClock = 0; savePpos(storage, shipGeo()); }
   }
   return {
-    open, start: () => start(), cancel, tick,
+    open, openHome, flyTo, start: () => start(), cancel, tick,
     get phase() { return phase; },
     get active() { return phase !== 'idle'; },
     get arriving() { return phase === 'arrive-wait'; },

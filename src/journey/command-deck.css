@@ -25,6 +25,9 @@
 .cd-site { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .cd-communications { margin-left:auto; color:var(--cd-dim); font-size:10px; }
 .cd-top button { padding:3px 8px; white-space:nowrap; }
+.cd-root .cd-inventory-button.cd-active,.cd-root .cd-mission-button.cd-active { border-color:var(--cd-cyan); color:var(--cd-cyan); background:rgba(34,211,238,.09); }
+.cd-inventory-button span { color:var(--cd-cyan); }
+.cd-mission-button span { color:var(--cd-amber); }
 .cd-inbox-button.cd-unread { border-color:#865d1a; color:var(--cd-amber); background:#2b200b; }
 .cd-pause { font-size:10px !important; }
 .cd-center { position:absolute; left:50%; top:49px; width:440px; max-width:38vw; transform:translateX(-50%); }
@@ -38,7 +41,7 @@
 .cd-status { margin-top:31px; padding:5px 12px; text-align:center; color:var(--cd-cyan); border:1px solid #1e7584; background:rgba(2,9,13,.8); font-size:11px; overflow-wrap:anywhere; }
 .cd-is-paused .cd-status { color:var(--cd-amber); border-color:#92641c; }
 .cd-bottom { position:absolute; left:0; right:0; bottom:0; pointer-events:auto; }
-.cd-dock { display:grid; grid-template-columns:minmax(150px,.95fr) minmax(180px,1fr) minmax(320px,2.1fr) minmax(170px,.97fr) minmax(190px,1.15fr); gap:5px; height:252px; padding:5px; background:rgba(1,5,9,.94); border-top:1px solid var(--cd-line); }
+.cd-dock { display:grid; grid-template-columns:minmax(150px,.95fr) minmax(180px,1fr) minmax(420px,4.27fr); gap:5px; height:252px; padding:5px; background:rgba(1,5,9,.94); border-top:1px solid var(--cd-line); }
 .cd-panel { min-width:0; min-height:0; position:relative; padding:9px 10px; border:1px solid var(--cd-line); border-radius:3px; background:rgba(5,11,17,.89); overflow:hidden; }
 .cd-panel-title { display:block; width:100%; color:var(--cd-dim); font-size:10px !important; letter-spacing:.035em; line-height:1.45; font-weight:500; }
 .cd-root button.cd-panel-title { border:0; background:none; padding:0 0 6px; }
@@ -102,10 +105,16 @@
 .cd-bar { position:relative; border:1px solid var(--cd-line); height:18px; overflow:hidden; background:#07131a; }
 .cd-bar i { position:absolute; inset:0 auto 0 0; opacity:.25; background:var(--cd-tone,var(--cd-cyan)); }
 .cd-bar span { display:block; position:relative; padding:1px 6px; font-size:10px; color:var(--cd-tone,var(--cd-cyan)); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.cd-actions { min-height:0; flex:1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:minmax(72px,1fr); gap:5px; overflow:auto; scrollbar-width:thin; align-content:stretch; }
-.cd-root .cd-action { min-width:0; display:flex; flex-direction:column; padding:6px 8px; gap:4px; }
-.cd-action strong { font-size:12px; font-weight:650; line-height:1.3; overflow-wrap:anywhere; }
-.cd-action small { color:var(--cd-dim); font-size:9px; line-height:1.4; overflow-wrap:anywhere; }
+.cd-action-grid { min-height:0; flex:1; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-auto-rows:42px; gap:4px; overflow:auto; scrollbar-width:thin; align-content:start; }
+/* Action tiles join the grid directly so the emergency control can hold the last cell of the second row. */
+.cd-actions { display:contents; }
+.cd-actions-panel { overflow:visible; }
+.cd-actions-extra { position:absolute; left:-1px; right:-1px; bottom:calc(100% + 6px); z-index:2; max-height:max(160px,calc(100dvh - 320px)); display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-auto-rows:minmax(42px,auto); gap:4px; padding:6px; overflow:auto; scrollbar-width:thin; border:1px solid #1e7584; border-radius:3px; background:#03080d; box-shadow:0 -10px 30px rgba(0,0,0,.45); }
+.cd-root .cd-action { min-width:0; display:flex; flex-wrap:wrap; align-content:center; align-items:baseline; column-gap:5px; row-gap:1px; padding:4px 6px; overflow:hidden; }
+.cd-action kbd { flex:none; }
+.cd-action kbd:empty { display:none; }
+.cd-action strong { flex:1 1 auto; min-width:0; font-size:11.5px; font-weight:650; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cd-action small { flex:1 0 100%; color:var(--cd-dim); font-size:9px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cd-action.cd-ready { border-color:#1b4e45; }
 .cd-action.cd-ready small { color:#5abb9d; }
 .cd-action.cd-active,.cd-action.cd-held { border-color:var(--cd-cyan); background:rgba(34,211,238,.07); }
@@ -115,23 +124,33 @@
 .cd-action:disabled small { color:#cf9c43; }
 .cd-root .cd-more-actions { padding:3px 6px; font-size:10px; text-align:center; color:var(--cd-cyan); flex:none; }
 .cd-empty-actions,.cd-empty-inventory { color:var(--cd-dim); font-size:11px; padding:20px 4px; }
-.cd-inventory-panel { display:flex; flex-direction:column; }
-.cd-inventory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:minmax(56px,1fr); gap:5px; margin-top:8px; overflow:auto; min-height:0; flex:1; scrollbar-width:thin; }
+/* Emergency stays one press away in every mode: the bottom-right cell of the action grid, never folded away. */
+.cd-root .cd-emergency { grid-column:-3 / -1; min-width:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:1px; padding:4px 6px; overflow:hidden; border-color:#a34138; background:rgba(125,29,23,.10); color:var(--cd-red); text-align:center; }
+.cd-root .cd-emergency:hover:not(:disabled) { border-color:var(--cd-red); background:rgba(125,29,23,.24); }
+.cd-emergency strong { max-width:100%; font-size:11px; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cd-emergency small { max-width:100%; font-size:9px; line-height:1.3; color:#b98b86; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cd-emergency small:empty { display:none; }
+.cd-root .cd-emergency:disabled { border-color:#4a2522; color:#9a6b66; }
+/* Inventory and mission: opened on demand from the top bar, drawn over the scene under it. */
+.cd-inventory-pop,.cd-mission-pop { position:absolute; top:42px; right:13px; width:460px; max-width:calc(100vw - 26px); max-height:max(160px,calc(100dvh - 320px)); display:flex; flex-direction:column; padding:10px 12px 12px; border:1px solid #1e7584; border-radius:3px; background:#03080d; box-shadow:0 10px 30px rgba(0,0,0,.45); pointer-events:auto; }
+.cd-inventory-pop header,.cd-mission-pop header { flex:none; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.cd-root .cd-close-inventory,.cd-root .cd-close-mission { padding:3px 8px; font-size:10px; white-space:nowrap; }
+.cd-mission-pop { width:380px; gap:6px; }
+.cd-root .cd-mission-pop .cd-mission-title { width:auto; min-width:0; padding:0; }
+.cd-inventory { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:minmax(60px,auto); gap:5px; margin-top:8px; overflow:auto; min-height:0; scrollbar-width:thin; }
 .cd-root .cd-bay { min-width:0; display:flex; flex-direction:column; gap:4px; padding:6px; }
 .cd-bay span { font-size:10px; color:#a9bbc7; }
 .cd-bay strong { font-size:12px; color:var(--cd-cyan); overflow-wrap:anywhere; }
 .cd-bay small { font-size:9px; color:var(--cd-dim); overflow-wrap:anywhere; }
 .cd-bay:disabled { border-style:dashed; }
 .cd-bay:disabled strong { color:#8598a7; }
-.cd-mission-panel { display:flex; flex-direction:column; gap:5px; }
 .cd-root .cd-mission-title { color:var(--cd-amber); font-size:11px !important; font-weight:700; }
-.cd-mission-body { color:var(--cd-dim); font-size:10px; line-height:1.5; }
+.cd-mission-body { color:#a3b3bf; font-size:11px; line-height:1.55; }
 .cd-progress { height:3px; background:#1c2c35; flex:none; }
 .cd-progress i { display:block; height:100%; background:var(--cd-cyan); }
-.cd-mission-steps { padding:0; margin:3px 0 0; list-style:none; overflow:auto; flex:1; min-height:0; font-size:10px; scrollbar-width:thin; }
+.cd-mission-steps { padding:0; margin:3px 0 0; list-style:none; overflow:auto; flex:1; min-height:0; font-size:11px; scrollbar-width:thin; }
 .cd-mission-steps li { padding:3px 0; color:#95a7b4; overflow-wrap:anywhere; }
 .cd-mission-steps .cd-done { color:var(--cd-green); }
-.cd-root .cd-emergency { display:block; width:100%; padding:8px 6px; margin-top:auto; border-color:#a34138; background:rgba(125,29,23,.10); color:var(--cd-red); text-align:center; font-size:10px; font-weight:700; flex:none; }
 .cd-instrument-details { display:none; }
 .cd-instruments { position:absolute; left:14px; right:14px; bottom:267px; display:flex; justify-content:space-between; align-items:flex-end; gap:40px; }
 .cd-instrument { width:240px; max-width:24vw; background:rgba(3,9,14,.76); border:1px solid var(--cd-line); padding:10px 12px; }
@@ -171,14 +190,16 @@
 .cd-log-empty { padding:25px 0; color:var(--cd-dim); font-size:12px; }
 .cd-log-storage { padding:10px 18px; color:var(--cd-dim); font-size:10px; border-top:1px solid var(--cd-line); }
 .cd-mobile-tabs { display:none; }
+@media (min-width:1500px) { .cd-action-grid,.cd-actions-extra { grid-template-columns:repeat(8,minmax(0,1fr)); } }
+@media (max-width:1099px) and (min-width:1001px) { .cd-action-grid,.cd-actions-extra { grid-template-columns:repeat(6,minmax(0,1fr)); } }
 @media (max-width:1250px) and (min-width:1001px) {
-  .cd-dock { grid-template-columns:155px 175px minmax(290px,1.7fr) minmax(145px,.9fr) minmax(175px,1fr); height:268px; }
+  .cd-dock { grid-template-columns:155px 175px minmax(440px,1fr); height:268px; }
   .cd-panel { padding:8px; }
   .cd-instruments { bottom:282px; }
   .cd-top { gap:15px; }
   .cd-brand span { display:none; }
   .cd-center { max-width:35vw; }
-  .cd-action strong { font-size:11px; }
+  .cd-action strong,.cd-emergency strong { font-size:11px; }
   .cd-action small { font-size:9px; }
 }
 @media (max-width:1000px) {
@@ -192,12 +213,12 @@
   .cd-toast { top:152px; right:12px; width:348px; max-width:calc(100vw - 24px); }
   .cd-instruments { display:none; }
   .cd-bottom { padding-bottom:env(safe-area-inset-bottom,0); background:#02070c; }
-  .cd-mobile-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; padding:5px 7px 0; border-top:1px solid var(--cd-line); }
+  .cd-mobile-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:5px 7px 0; border-top:1px solid var(--cd-line); }
   .cd-mobile-tabs button { min-height:35px; text-align:center; padding:6px 2px; font-size:11px; color:var(--cd-dim); }
   .cd-mobile-tabs button[aria-pressed="true"] { color:var(--cd-cyan); border-color:#188495; }
   .cd-dock { display:block; height:245px; padding:5px 7px 7px; border-top:0; }
   .cd-panel { display:none; height:100%; padding:9px; }
-  .cd-dock[data-panel="navigation"] [data-pane="navigation"],.cd-dock[data-panel="identity"] [data-pane="identity"],.cd-dock[data-panel="actions"] [data-pane="actions"],.cd-dock[data-panel="inventory"] [data-pane="inventory"],.cd-dock[data-panel="mission"] [data-pane="mission"] { display:flex; flex-direction:column; }
+  .cd-dock[data-panel="navigation"] [data-pane="navigation"],.cd-dock[data-panel="identity"] [data-pane="identity"],.cd-dock[data-panel="actions"] [data-pane="actions"] { display:flex; flex-direction:column; }
   .cd-ident-body { flex:none; height:150px; padding:9px 0; }
   .cd-identity { overflow:auto; scrollbar-width:thin; }
   .cd-instrument-details { display:block; margin-top:12px; font-size:11px; color:var(--cd-cyan); }
@@ -209,13 +230,13 @@
   .cd-metrics { flex:none; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 20px; max-height:125px; }
   .cd-ident-body .cd-metrics { grid-template-columns:minmax(0,1fr); }
   .cd-mode-tabs button { font-size:11px; min-height:30px; }
-  .cd-actions { grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:minmax(75px,1fr); }
-  .cd-action strong { font-size:12px; }
+  .cd-action-grid { grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:44px; }
+  .cd-actions-extra { grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:minmax(44px,auto); bottom:calc(100% + 52px); }
+  .cd-action strong { font-size:11.5px; }
   .cd-action small { font-size:9px; }
-  .cd-root .cd-action { padding:6px; }
-  .cd-inventory { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .cd-root .cd-action { padding:4px 6px; }
+  .cd-inventory-pop,.cd-mission-pop { top:46px; right:12px; max-height:max(150px,calc(100dvh - 340px)); }
   .cd-mission-steps { font-size:12px; }
-  .cd-root .cd-emergency { font-size:12px; padding:9px; }
   .cd-log>header,.cd-log-tools { padding:12px 14px; }
 }
 @media (max-height:650px) {

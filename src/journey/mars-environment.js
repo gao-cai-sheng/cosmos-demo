@@ -1,11 +1,12 @@
-import {daylightClock} from './daylight-clock.js';
+import {daylightClock,dayFractionOfPhase,startPhase,nextDawnElapsed,advanceTutorialDay,tutorialDayClock} from './daylight-clock.js';
 import * as THREE from 'three';
 import {clamp} from './rover-power.js';
 // Artistic 20-minute sol, explicitly accelerated. One direction drives sky, shadows and PV.
-export function createMarsEnvironment({scene,state,getPosition}){
+export function createMarsEnvironment({scene,state,getPosition,morningStart=false,holdDay=false}){
  const sun=scene.children.find(o=>o.isDirectionalLight),fills=scene.children.filter(o=>o.isHemisphereLight||o.isAmbientLight);
  const initial=sun?sun.position.clone().sub(sun.target.position).normalize():new THREE.Vector3(-.894,.309,.325);
- const start=Math.PI-Math.asin(clamp(initial.y/.65,-1,1));let phase=start;
+ const start=startPhase(initial.y,morningStart);let phase=start,held=false,tutorial=holdDay;
+ if(holdDay){const turn=Math.PI*2,p=start+state.elapsed/1200*turn;const stop=Math.floor(p/turn)*turn+Math.PI-.6;if(p>stop)state.elapsed=(stop-start)/turn*1200;}
  const sky=[];scene.traverse(o=>{if(o.material?.uniforms&&(o.material.uniforms.uHorizon||o.material.uniforms.horizonColor))sky.push(o);});
  const dayTop=new THREE.Color('#55403b'),nightTop=new THREE.Color('#060a13'),dayHorizon=new THREE.Color('#ca8964'),dusk=new THREE.Color('#6d5362'),night=new THREE.Color('#101521');
  const disc=scene.getObjectByName('Sun Disc');
@@ -13,7 +14,7 @@ export function createMarsEnvironment({scene,state,getPosition}){
  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(spriteCanvas),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));glow.name='Mars twilight forward scattering';glow.scale.set(6500,6500,1);scene.add(glow);
  const labels={dawn:'晨曦',noon:'正午',dusk:'黄昏',night:'夜晚',auto:'自动晨昏'};
  function set(mode){state.environment=labels[mode]?mode:'auto';}
- function update(dt){if(!sun)return;state.elapsed+=dt;const mode=state.environment||'auto';
+ function update(dt){if(!sun)return;if(!held)state.elapsed=tutorial?advanceTutorialDay(start,state.elapsed,dt):state.elapsed+dt;const mode=state.environment||'auto';
   phase=mode==='dawn'?.1:mode==='noon'?Math.PI/2:mode==='dusk'?Math.PI-.1:mode==='night'?Math.PI*1.5:start+state.elapsed/1200*Math.PI*2;
   const elevation=Math.asin(.65*Math.sin(phase)),az=Math.atan2(initial.x,initial.z)+(phase-start)*.7;
   const direction=new THREE.Vector3(Math.sin(az)*Math.cos(elevation),Math.sin(elevation),Math.cos(az)*Math.cos(elevation));
@@ -25,5 +26,5 @@ export function createMarsEnvironment({scene,state,getPosition}){
   if(scene.fog)scene.fog.color.copy(horizon);if(disc){disc.position.copy(origin).addScaledVector(direction,330000);disc.visible=direction.y>-.025;}
   glow.position.copy(origin).addScaledVector(direction,28000);glow.material.opacity=twilight*visible;
  }
- return {set,update,get clock(){return daylightClock(phase,state.environment||'auto');},get label(){return labels[state.environment||'auto'];},get elevation(){return Math.asin(.65*Math.sin(phase))*180/Math.PI;}};
+ return {set,update,holdDaylight(value){tutorial=value==="afternoon";held=value===true;if(held&&Math.sin(phase)<=0){state.elapsed=nextDawnElapsed(start,state.elapsed);set("auto");update(0);}},advanceToDawn(){state.elapsed=nextDawnElapsed(start,state.elapsed);set("auto");update(0);},get secondsToDawn(){const c=daylightClock(phase,"auto");return c.night?c.seconds:0;},get clock(){return tutorialDayClock(phase,state.environment||'auto',tutorial);},get label(){return labels[state.environment||'auto'];},get elevation(){return Math.asin(.65*Math.sin(phase))*180/Math.PI;},get dayFraction(){return dayFractionOfPhase(phase);}};
 }

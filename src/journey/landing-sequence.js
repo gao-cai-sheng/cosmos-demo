@@ -1,8 +1,13 @@
 import * as THREE from 'three';
+import {getMarsDust} from './mars-dust.js';
+import {emitShipDust,NX07_DUST_DATUM} from './dust-sources.js';
 import {createSupplyDrop} from './supply-drop-model.js';
+import {HOME_SITE,padExtent} from './outpost-layout.js';
 import {createKestrel} from './kestrel-model.js';
 import {arrivalFrame} from './landing-timeline.js';
-import {findLandingSite} from './landing-support.js';
+import {findLandingSite,ARRIVAL_BASE,NX07_SCALE as K} from './landing-support.js';
+import {sfx} from './sfx.js';
+import {createLandingAudio} from './sfx-watch.js';
 
 const smoothstep=t=>{const u=THREE.MathUtils.clamp(t,0,1);return u*u*(3-2*u);};
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
@@ -15,17 +20,12 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
   const supply=providedSupply||createSupplyDrop(scene);supply.group.visible=true;
   const model=asset||createKestrel(),craft=model.group;scene.add(craft);craft.visible=true;
 
-  const shield=new THREE.Mesh(new THREE.CylinderGeometry(10,10,.15,32),new THREE.MeshStandardMaterial({color:0x3c2922,emissive:0xff410c,transparent:true,opacity:.24}));
-  shield.position.y=-2.05;craft.add(shield);
+  const shield=new THREE.Mesh(new THREE.CylinderGeometry(10*K,10*K,.15,32),new THREE.MeshStandardMaterial({color:0x3c2922,emissive:0xff410c,transparent:true,opacity:.24}));
+  shield.position.y=-2.05*K;craft.add(shield);
   const flames=new THREE.Group();flames.name='Kestrel powered descent plumes';craft.add(flames);
-  for(const [x,z] of [[-4.6,-5.8],[4.6,-5.8],[-4.6,3.8],[4.6,3.8]]){
-    const f=new THREE.Mesh(new THREE.ConeGeometry(1.05,7.5,14),new THREE.MeshBasicMaterial({color:0xffb269,transparent:true,opacity:.68,depthWrite:false}));
-    f.rotation.z=Math.PI;f.position.set(x,-2.4,z);flames.add(f);
-  }
-  const dust=new THREE.Mesh(new THREE.RingGeometry(5,20,48),new THREE.MeshBasicMaterial({color:0xb77951,side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false}));
-  dust.rotation.x=-Math.PI/2;scene.add(dust);
-  const supplyDust=new THREE.Mesh(new THREE.RingGeometry(2.5,9,40),new THREE.MeshBasicMaterial({color:0xb77951,side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false}));
-  supplyDust.rotation.x=-Math.PI/2;scene.add(supplyDust);
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(NX07_DUST_DATUM.radius*.65,16,24),new THREE.MeshBasicMaterial({color:0x96cced,transparent:true,opacity:.26,depthWrite:false}));
+  flame.rotation.z=Math.PI;flame.position.fromArray(NX07_DUST_DATUM.position);flame.position.y-=8;flames.add(flame);
+  const dust=getMarsDust({scene,camera,heightAt});let previousSeconds=0;
 
   const hud=document.createElement('div');
   hud.className='landing-sequence landing-cabin-hud';
@@ -43,11 +43,19 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
     <footer><progress max="30" value="0"></progress><span class="landing-time"></span><button>跳过动画</button></footer>`;
   document.body.append(hud);document.body.classList.add('is-arriving','kestrel-cabin-monitor');
 
-  const supplyPosition=providedSupply?supply.group.position:{x:6,z:-25};
-  const avoidSupply=(x,z)=>Math.hypot(x-supplyPosition.x,z-supplyPosition.z)<12;
-  const craftBase=findLandingSite({x:-65,z:-38},heightAt,avoidSupply)||{x:-65,z:-38,heading:0},craftGround=heightAt(craftBase.x,craftBase.z);
+  const supplyPosition=providedSupply?supply.group.position:HOME_SITE;
+  // Keep NX07's footprint off the outpost's whole graded pad, fill slope included. This used to be a
+  // circle round the outpost's centre; at 198 m the string is far longer than it is deep, and a circle
+  // that covers its ends also covers the arrival base in front of the door (D69).
+  const supplyHeading=providedSupply?supply.group.rotation.y:HOME_SITE.heading,supplyCos=Math.cos(supplyHeading),supplySin=Math.sin(supplyHeading);
+  const supplyPad=padExtent(supply.outpost?.metrics.bermRun);
+  const avoidSupply=(x,z)=>{
+    const dx=x-supplyPosition.x,dz=z-supplyPosition.z,lx=dx*supplyCos-dz*supplySin,lz=dx*supplySin+dz*supplyCos;
+    return Math.abs(lx)<supplyPad.halfX&&lz>supplyPad.zNeg&&lz<supplyPad.zPos;
+  };
+  const craftBase=findLandingSite(ARRIVAL_BASE,heightAt,avoidSupply)||{...ARRIVAL_BASE},craftGround=heightAt(craftBase.x,craftBase.z);
   craft.position.set(craftBase.x,craftGround,craftBase.z);craft.rotation.set(0,craftBase.heading,0);model.fitGround(heightAt);model.setFlightPose?.(0);const craftLandingY=craft.position.y;
-  const supplyBase=providedSupply?{x:supply.group.position.x,z:supply.group.position.z}:{x:6,z:-25};
+  const supplyBase=providedSupply?{x:supply.group.position.x,z:supply.group.position.z}:{x:HOME_SITE.x,z:HOME_SITE.z};
   const supplyGround=providedSupply?supply.group.position.y:heightAt(supplyBase.x,supplyBase.z);
   let skip=false;hud.querySelector('button').onclick=()=>skip=true;
 
@@ -57,24 +65,23 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
   const eventNode=hud.querySelector('.landing-event'),timeNode=hud.querySelector('.landing-time'),progress=hud.querySelector('progress');
   const lensPos=new THREE.Vector3();
   let aim={pan:0,tilt:0};
+  // 从轨道页点过来时浏览器多半已经允许出声；不允许就等玩家第一次点按（比如点「跳过」）。
+  sfx.prime();const audio=createLandingAudio(sfx);
 
   function update(seconds){
     const f=arrivalFrame(seconds);
+    audio.update(seconds,f);
 
     // Independent pod lands first, raises its roof camera and slews it onto NX07.
     supply.group.position.set(supplyBase.x,supplyGround+f.supply.altitude,supplyBase.z);
     if(f.supply.mast>0){
       supply.lens.getWorldPosition(lensPos);
       const dx=craft.position.x-lensPos.x,dz=craft.position.z-lensPos.z,target={pan:wrapAngle(Math.atan2(dx,dz)-supply.group.rotation.y),tilt:Math.atan2(craft.position.y+1.5-lensPos.y,Math.hypot(dx,dz))};
-      const slew=smoothstep((seconds-8)/3);
+      const slew=smoothstep((seconds-10.3)/2.2);
       aim={pan:target.pan*slew,tilt:target.tilt*slew};
     }
     supply.update({...f.supply,...aim});
     supply.group.updateMatrixWorld(true);
-    supplyDust.position.set(supplyBase.x,supplyGround+.06,supplyBase.z);
-    const supplyTouch=Math.max(0,1-Math.abs(seconds-5.5)/1.2);
-    supplyDust.scale.setScalar(1+smoothstep((seconds-4.8)/1.4)*.8);
-    supplyDust.material.opacity=.24*supplyTouch;
 
     craft.position.set(craftBase.x,craftLandingY+f.kestrel.altitude,craftBase.z);
     model.setFlightPose?.(smoothstep((seconds-22)/5));model.update?.(0);
@@ -82,9 +89,9 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
     shield.material.emissiveIntensity=f.kestrel.heat*2;
     flames.visible=f.kestrel.thrust>.01;
     for(const plume of flames.children)plume.scale.y=Math.max(.15,f.kestrel.thrust)*(1+Math.sin(seconds*42+plume.position.x)*.10);
-    dust.position.set(craftBase.x,craftGround+.08,craftBase.z);
-    dust.scale.setScalar(1+Math.max(0,seconds-24)*.52);
-    dust.material.opacity=f.kestrel.altitude<45?Math.max(0,.42*(1-f.kestrel.altitude/45)*(seconds<29?1:30-seconds)):0;
+    const dustDt=Math.min(.05,Math.max(0,seconds-previousSeconds));previousSeconds=seconds;
+    emitShipDust(dust,craft,f.kestrel.thrust,dustDt,heightAt);
+    dust.plume('supply',{x:supplyBase.x,y:supply.group.position.y,z:supplyBase.z,height:f.supply.altitude,thrust:f.supply.thrust*.15},dustDt);
 
     // Crew remains aboard. The large canvas is a cabin monitor: NX07 ventral feed first,
     // then the pod's roof camera becomes the external source for NX07 touchdown.
@@ -93,11 +100,12 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
       camera.lookAt(craft.position.x,craft.position.y+1.5,craft.position.z);
       camera.fov=46;
     }else{
-      camera.position.set(craft.position.x+8,craft.position.y-14,craft.position.z+12);
+      camera.position.set(craft.position.x+8*K,craft.position.y-14*K,craft.position.z+12*K);
       camera.lookAt(supplyBase.x,supplyGround+Math.max(1.6,f.supply.altitude*.08),supplyBase.z+1.5);
       camera.fov=48;
     }
     camera.updateProjectionMatrix();
+    dust.update(dustDt);
 
     feedNode.textContent=f.feed;
     phaseNode.textContent=f.phase;
@@ -116,8 +124,9 @@ export function createLandingSequence({scene,camera,heightAt,asset,supply:provid
     get skipped(){return skip;},
     finish(){
       fill.removeFromParent();supply.finish();hud.remove();document.body.classList.remove('is-arriving','kestrel-cabin-monitor');
-      flames.visible=false;dust.removeFromParent();supplyDust.removeFromParent();
+      flames.visible=false;audio.finish();
       craft.position.set(craftBase.x,craftLandingY,craftBase.z);model.fitGround(heightAt,()=>false,{snap:true});model.update(0);shield.removeFromParent();flames.removeFromParent();
+      shield.geometry.dispose();shield.material.dispose();flame.geometry.dispose();flame.material.dispose();
       supply.update({mast:1,...aim});
       onFinish(craftBase);
     }

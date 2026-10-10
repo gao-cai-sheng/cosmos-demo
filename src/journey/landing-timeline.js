@@ -4,6 +4,20 @@ const smooth = value => {
   return t * t * (3 - 2 * t);
 };
 const lerp = (a, b, t) => a + (b - a) * t;
+// Cubic Hermite from p0 to p1 over u = 0..1; m0 / m1 are the end slopes per unit u.
+const hermite = (p0, p1, m0, m1, u) => {
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * p1 + (u3 - u2) * m1;
+};
+
+const POD_BRAKE_END = 3;          // s, braking burn done at 150 m
+const POD_TOUCHDOWN = 9;          // s
+const POD_TERMINAL_RATE = 25;     // m/s, mean rate over the last 150 m
+// Entry rate that makes the braking leg decelerate evenly down to the terminal rate.
+const POD_ENTRY_RATE = 2 * (900 - 150) / POD_BRAKE_END - POD_TERMINAL_RATE;
+const MAST_UP = 9.3;              // s, mast starts to telescope
+const LINK_UP = 11.3;             // s, mast up, link handshake starts
+const MAST_READY = 12.5;          // s, pod feed takes over
 
 export function arrivalFrame(seconds) {
   const t = Math.max(0, Math.min(30, Number.isFinite(seconds) ? seconds : 0));
@@ -12,21 +26,32 @@ export function arrivalFrame(seconds) {
   let supplyChute = 0;
   let supplyThrust = 0;
   let supplyHeat = 0;
-  if (t < 2.8) {
-    const u = t / 2.8;
-    supplyAltitude = lerp(900, 250, smooth(u));
+  // The outpost lands on thrust, not under a canopy. What comes down now is a 33 m string of
+  // pressurised modules standing on its own landing feet; no parachute you could draw would be
+  // holding that up. So the burn starts high and carries the whole descent, the way NX07's does.
+  //
+  // Two legs. The braking burn takes it from 900 m to 150 m and bleeds the speed off to 25 m/s;
+  // the terminal descent covers the last 150 m in six seconds and settles onto the feet. The
+  // ventral camera looks straight down and cannot show height, so the shadow is the only cue —
+  // with a low sun it lies ~3x the altitude away. The old leg did its last 250 m in 2.7 s, and
+  // the shadow shot into frame and hit feet that already looked landed.
+  if (t < POD_BRAKE_END) {
+    const u = t / POD_BRAKE_END;
+    supplyAltitude = hermite(900, 150, -POD_ENTRY_RATE * POD_BRAKE_END, -POD_TERMINAL_RATE * POD_BRAKE_END, u);
     supplyHeat = Math.sin(u * Math.PI) * 0.9;
-  } else if (t < 5.5) {
-    const u = (t - 2.8) / 2.7;
-    supplyAltitude = lerp(250, 0, smooth(u));
-    supplyChute = t < 4.7 ? clamp01((t - 2.8) / 0.55) : clamp01((5.5 - t) / 0.8);
-    supplyThrust = clamp01((t - 4.2) / 0.5) * (1 - smooth((t - 4.2) / 1.3) * 0.55);
+    supplyThrust = clamp01((t - 1.9) / 1.1);               // retro burn lights before the shield cools
+  } else if (t < POD_TOUCHDOWN) {
+    const u = (t - POD_BRAKE_END) / (POD_TOUCHDOWN - POD_BRAKE_END);
+    supplyAltitude = hermite(150, 0, -POD_TERMINAL_RATE * (POD_TOUCHDOWN - POD_BRAKE_END), 0, u);
+    // Hover-weight thrust through the terminal leg, easing off as the feet settle.
+    supplyThrust = lerp(1, 0.7, u) * (1 - smooth(clamp01((t - (POD_TOUCHDOWN - 0.6)) / 0.6)) * 0.75);
   }
 
   // The landed pod raises its own camera mast; MU-7 stays aboard NX07 inside ARES.
-  const mastDeploy = t < 6 ? 0 : smooth((t - 6) / 3.5);
-  const mastLink = t < 10.5 ? 0 : smooth((t - 10.5) / 2);
-  const mastReady = t >= 12.5;
+  // The mast and link are squeezed into the time left before 12.5 s, when the pod feed takes over.
+  const mastDeploy = t < MAST_UP ? 0 : smooth((t - MAST_UP) / (LINK_UP - MAST_UP));
+  const mastLink = t < LINK_UP ? 0 : smooth((t - LINK_UP) / (MAST_READY - LINK_UP));
+  const mastReady = t >= MAST_READY;
 
   let kestrelAltitude;
   let kestrelThrust = 0;
@@ -52,9 +77,9 @@ export function arrivalFrame(seconds) {
   }
 
   let phase;
-  if (t < 5.5) phase = '先遣舱先行下降';
-  else if (t < 9.5) phase = '先遣舱触地 · 相机桅杆升起';
-  else if (t < 12.5) phase = '桅杆相机自检 · 链路握手';
+  if (t < POD_TOUCHDOWN) phase = '先遣舱先行下降';
+  else if (t < LINK_UP) phase = '先遣舱触地 · 相机桅杆升起';
+  else if (t < MAST_READY) phase = '桅杆相机自检 · 链路握手';
   else if (t < 14) phase = '先遣舱地面相机接管';
   else if (t < 24) phase = 'NX07 动力下降';
   else if (t < 28) phase = '近地悬停 · 着陆区确认';
@@ -69,7 +94,7 @@ export function arrivalFrame(seconds) {
       chute: supplyChute,
       thrust: supplyThrust,
       heat: supplyHeat,
-      landed: t >= 5.5,
+      landed: t >= POD_TOUCHDOWN,
       mast: mastDeploy,
       link: mastLink,
       ready: mastReady,

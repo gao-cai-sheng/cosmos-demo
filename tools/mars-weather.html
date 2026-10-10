@@ -127,7 +127,7 @@ import { decodeMola, shadedReliefCanvas } from '../src/lib/mola-grid.js';
 
 const $ = s => document.querySelector(s);
 const KEY = 'cosmos.weather.view.v1';
-const CAMP = { lat: -13.4, lon: 300.6, title: '先遣营地 · 科普剌忒斯峡谷', camp: true };
+const CAMP = { lat: 4.375, lon: 135.625, title: '先遣营地 · 埃律西昂平原', camp: true };
 const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono');
 const fmtLat = v => `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'N' : 'S'}`, fmtLon = v => `${(((v % 360) + 360) % 360).toFixed(1)}°E`;
 const KIND = { frontal: ['锋面尘暴', '#e2803e'], regional: ['区域尘暴', '#e2803e'], polar: ['冰云气旋', '#d6ecff'], global: ['全球尘暴', '#c4703a'] };

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>遗迹档案</title>
+<!-- 生活舱通信台打开的遗迹档案（D65）：没有参数是档案首页，?relic=<id> 是艾琳的任务简报。
+     从 cosmos-report-demo/relic-viking.html 搬来；引擎在 src/relics/brief/，每处遗迹的台词和机位在 src/relics/brief/<id>.js。 -->
+<link rel="stylesheet" href="../src/relics/brief/erin-stage.css">
+<style>
+/* 这一页的主角是遗迹：艾琳缩小一点，右边让给档案台 */
+:root{--fig-h:calc(100vh - 140px);--close-h:min(122vh,84vw)}
+.side{gap:22px}
+
+.brief{position:relative;flex:1;min-height:0;display:grid;
+  grid-template-columns:minmax(0,1fr) clamp(290px,34%,370px);grid-template-rows:auto minmax(0,1fr);
+  background:linear-gradient(180deg,rgba(7,18,32,.66),rgba(4,10,18,.78));
+  border:1px solid rgba(111,227,245,.42);border-radius:6px;
+  box-shadow:inset 0 0 40px rgba(111,227,245,.06),0 0 40px rgba(78,163,255,.08)}
+.brief::before,.brief::after{content:"";position:absolute;z-index:3;width:16px;height:16px;border:2px solid var(--cyan);pointer-events:none}
+.brief::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.brief::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+
+/* 分节标签 */
+.tabs{grid-column:1/-1;display:flex;border-bottom:1px solid rgba(111,227,245,.2)}
+.tabs button{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;padding:10px 14px;text-align:left;white-space:nowrap;overflow:hidden;
+  font:11px var(--mono);letter-spacing:.08em;color:var(--bone-dim);border-right:1px solid rgba(111,227,245,.12)}
+.tabs button:last-child{border-right:0}
+.tabs button b{font:600 14px var(--sans);letter-spacing:.06em}
+.tabs button:hover{color:var(--bone)}
+.tabs button.on{color:var(--cyan);background:rgba(111,227,245,.08);box-shadow:inset 0 -2px 0 var(--cyan)}
+.tabs button.on b{color:var(--bone)}
+
+/* 模型影像 */
+.view{position:relative;min-width:0;min-height:0;overflow:hidden;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 64%,rgba(78,163,255,.13),transparent 72%),
+    repeating-linear-gradient(90deg,rgba(111,227,245,.035) 0 1px,transparent 1px 40px),
+    repeating-linear-gradient(0deg,rgba(111,227,245,.03) 0 1px,transparent 1px 40px)}
+.view canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+.view canvas:active{cursor:grabbing}
+.cap{position:absolute;z-index:2;top:12px;left:14px;font:11px var(--mono);letter-spacing:.1em;color:var(--cyan);pointer-events:none}
+.cap b{display:block;margin-top:2px;font:600 16px var(--sans);letter-spacing:.06em;color:var(--bone)}
+.cap span{display:block;color:var(--bone-dim);letter-spacing:.04em}
+.hint,.dims{position:absolute;z-index:2;bottom:10px;font:11px var(--mono);color:var(--bone-dim);letter-spacing:.06em;pointer-events:none}
+.hint{left:14px}.dims{right:14px}
+.vload{position:absolute;z-index:4;inset:0;display:grid;place-items:center;font:13px var(--mono);color:var(--bone-dim);letter-spacing:.08em;text-align:center;padding:24px}
+.vload.gone{display:none}
+.replay{position:absolute;z-index:3;top:12px;right:14px;font:12px var(--mono);letter-spacing:.06em;color:var(--cyan);
+  border:1px solid rgba(111,227,245,.45);border-radius:3px;padding:4px 10px;background:rgba(4,12,22,.7)}
+.replay:hover{background:rgba(111,227,245,.12)}
+.replay[hidden]{display:none}
+.nosig{position:absolute;z-index:3;top:14px;left:50%;translate:-50% 0;padding:5px 14px;font:600 13px var(--mono);letter-spacing:.14em;
+  color:var(--red);border:1px solid var(--red);border-radius:2px;background:rgba(40,6,6,.72);opacity:0;transition:opacity .3s;pointer-events:none}
+.view.lost .nosig{opacity:1;animation:rec 1.1s ease-in-out infinite}
+/* 下方字幕条：只在大镜头里用 */
+.lower{position:absolute;z-index:3;left:18px;bottom:34px;max-width:min(78%,640px);padding:8px 16px 9px 14px;display:none;
+  background:linear-gradient(90deg,rgba(3,8,14,.86),rgba(3,8,14,.55));border-left:3px solid var(--cyan);pointer-events:none}
+.lower small{display:block;font:11px var(--mono);letter-spacing:.12em;color:var(--cyan)}
+.lower b{display:block;font:600 18px var(--sans);letter-spacing:.04em}
+.lower.in{animation:lowerIn .5s .25s ease both}
+@keyframes lowerIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+
+/* 零件标注：点 + 引线 + 标签 */
+.callouts{position:absolute;z-index:1;inset:0;pointer-events:none}
+.callouts svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.callouts line{stroke:var(--cyan);stroke-width:1;opacity:.8}
+.callouts circle{fill:var(--cyan)}
+.callouts .warn line{stroke:var(--red)}
+.callouts .warn circle{fill:var(--red)}
+.co{position:absolute;left:0;top:0;padding:4px 9px 5px;white-space:nowrap;
+  background:rgba(4,12,22,.84);border:1px solid rgba(111,227,245,.6);border-radius:2px;transition:border-color .3s}
+.co b{display:block;font:600 13px var(--sans);letter-spacing:.06em;color:var(--bone)}
+.co small{display:block;font:11px var(--mono);color:var(--cyan);letter-spacing:.04em}
+.co.warn{border-color:var(--red)}
+.co.warn small{color:var(--red)}
+
+/* 相机视角：黑白 + 从左到右逐条扫出来（海盗号的相机是竖着一条一条扫的） */
+.scan-cover,.scan-line,.scan-rows{position:absolute;inset:0;z-index:1;display:none;pointer-events:none}
+.view.pov canvas{filter:grayscale(1) contrast(1.18) brightness(1.08)}
+.view.pov .scan-cover,.view.pov .scan-line,.view.pov .scan-rows{display:block}
+.scan-cover{background:#020406;clip-path:inset(0 0 0 0);animation:scanCover 4.2s .3s linear forwards}
+.scan-line{right:auto;width:2px;background:#f2efe8;box-shadow:0 0 14px #f2efe8;animation:scanLine 4.2s .3s linear forwards}
+.scan-rows{background:repeating-linear-gradient(90deg,rgba(0,0,0,.14) 0 1px,transparent 1px 3px)}
+@keyframes scanCover{to{clip-path:inset(0 0 0 100%)}}
+@keyframes scanLine{0%{left:0;opacity:1}98%{opacity:1}100%{left:100%;opacity:0}}
+
+/* 大地图：MOLA 实测高程渲染，左边缘 44°E */
+.mapbig{position:absolute;z-index:1;inset:0;display:none;overflow:hidden;container-type:size;background:#0b0604}
+.view.map .mapbig{display:block}
+.view.map canvas,.view.map .callouts{visibility:hidden}
+.plane{position:absolute;left:50%;top:50%;width:min(100cqw,200cqh);aspect-ratio:2/1;translate:-50% -50%;
+  background:url(../assets/relics/mars-map-44e.webp) center/100% 100% no-repeat;transition:transform 3s cubic-bezier(.55,0,.25,1)}
+.plane svg{position:absolute;inset:0;width:100%;height:100%}
+/* 经度是一圈：左右各接一份同样的图，推近到靠边的遗迹时不露黑边 */
+.plane::before,.plane::after{content:"";position:absolute;top:0;bottom:0;width:100%;background:inherit}
+.plane::before{right:100%}.plane::after{left:100%}
+.plane svg line{stroke:rgba(255,240,220,.18);stroke-width:1;vector-effect:non-scaling-stroke}
+.pin{position:absolute;width:0;height:0;transition:scale 3s cubic-bezier(.55,0,.25,1),opacity 1.2s}
+.plane.zoomed .pin.base{opacity:0}   /* 推近以后着陆场出画，别留半个标签 */
+.pin i{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%}
+.pin span{position:absolute;top:-11px;font:600 15px var(--sans);letter-spacing:.04em;white-space:nowrap;text-shadow:0 0 6px #000,0 0 2px #000}
+.pin span small{display:block;font:12px var(--mono);font-weight:400;opacity:.85}
+.pin.relic i{background:var(--orange);box-shadow:0 0 0 2px rgba(0,0,0,.5),0 0 14px var(--orange)}
+.pin.relic i::after{content:"";position:absolute;inset:-9px;border-radius:50%;border:1px solid var(--orange);animation:ping 1.8s ease-out infinite}
+@keyframes ping{from{transform:scale(.5);opacity:1}to{transform:scale(1.6);opacity:0}}
+.pin.relic span{left:18px;color:#ffd9bd}
+.pin.base i{left:-6px;top:-6px;width:12px;height:12px;border-radius:1px;transform:rotate(45deg);background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.pin.base span{left:16px;color:#d4f7fc}
+
+/* 右侧档案卡 */
+.card{position:relative;min-height:0;overflow:auto;padding:18px 20px 16px;border-left:1px solid rgba(111,227,245,.2)}
+.card.in{animation:holoIn .4s ease}
+.card .h-title small{font:12px var(--mono);font-weight:400;color:var(--bone-dim);margin-left:6px;letter-spacing:.04em}
+.card .h-rows dd{text-align:right}
+.card .h-foot b.warn{color:var(--amber)}
+.note{margin-top:10px;padding-top:10px;border-top:1px solid rgba(111,227,245,.14);font-size:13px;line-height:1.65;color:var(--bone-dim)}
+
+/* 对话框里的头像小窗：艾琳不在画面里时用（从全身图截头到胸，是缩小，不会糊） */
+.face{position:absolute;z-index:2;left:18px;bottom:16px;width:124px;height:150px;overflow:hidden;display:none;
+  border:1px solid rgba(111,227,245,.55);border-radius:3px;
+  background:radial-gradient(ellipse at 50% 30%,rgba(78,163,255,.28),rgba(5,12,22,.95) 70%)}
+.face img{position:absolute;width:330px;height:auto;max-width:none;filter:drop-shadow(0 0 10px rgba(111,227,245,.25))}
+.face::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(111,227,245,.1) 0 1px,transparent 1px 4px)}
+
+/* 镜头切换：黑场一闪 */
+.cutter{position:absolute;inset:0;z-index:9;background:#000;opacity:0;pointer-events:none}
+.cutter.run{animation:cut .44s ease}
+@keyframes cut{0%{opacity:0}38%,55%{opacity:1}100%{opacity:0}}
+
+/* ===== 镜头 ===== */
+/* 大镜头（wide / pov / map）：艾琳退到对话框里的小窗，档案台占满 */
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .figure{visibility:hidden}
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .side{left:3vw;right:3vw}
+.stage:is([data-shot=wide],[data-shot=pov]) .brief{grid-template-columns:minmax(0,1fr)}
+.stage:is([data-shot=wide],[data-shot=pov]) .card{display:none}
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) :is(.cap,.dims){display:none}
+.stage:is([data-shot=wide],[data-shot=pov]) .lower{display:block}
+.stage[data-shot=pov] .lower{top:14px;bottom:auto}   /* 相机视角里足垫在下半边，字幕挪上去 */
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .dialog{padding-left:166px}
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .dialog .name{left:160px}
+.stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .face{display:block}
+/* 近景（close）：艾琳放大到头到大腿，只留一块档案卡 */
+.stage[data-shot=close] .figure{top:5vh;bottom:auto;left:3vw;height:var(--close-h);width:calc(var(--close-h) * 2 / 3)}
+.stage[data-shot=close] .pad{display:none}
+.stage[data-shot=close] .side{left:max(50vw,calc(3vw + var(--close-h) * 0.5))}
+.stage[data-shot=close] .brief{flex:0 0 auto;align-self:flex-end;width:min(440px,100%);grid-template-columns:1fr;grid-template-rows:auto}
+.stage[data-shot=close] :is(.tabs,.view){display:none}
+.stage[data-shot=close] .card{border-left:0;overflow:visible}
+
+@media (max-aspect-ratio:5/4){
+  :root{--fig-h:44vh;--close-h:56vh}
+  .stage{padding-top:calc(var(--fig-h) + 110px)}
+  .floor{top:calc(var(--fig-h) + 30px)}
+  .brief{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  .view{height:max(280px,70vw)}
+  .card{border-left:0;border-top:1px solid rgba(111,227,245,.2);overflow:visible}
+  .tabs button{padding:9px 6px;justify-content:center}
+  .tabs button span{display:none}
+  .tabs button b{font-size:13px}
+  .stage:is([data-shot=wide],[data-shot=pov]) .lower{display:none}   /* 手机上字幕条会盖住半个画面，台词里已经说了 */
+  .stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]){padding-top:124px}
+  .stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .side{left:auto;right:auto}
+  .stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .dialog{padding-left:18px;padding-top:44px}
+  .stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .dialog .name{left:92px}
+  .stage:is([data-shot=wide],[data-shot=pov],[data-shot=map]) .dialog .stamp{display:none}   /* 名牌右移后会和它挤在一起 */
+  .face{width:64px;height:76px;top:-40px;bottom:auto;left:14px}
+  .face img{width:170px}
+  .stage[data-shot=close]{padding-top:calc(var(--close-h) + 60px)}
+  .stage[data-shot=close] .figure{top:70px;left:calc(50vw - var(--close-h) / 3)}
+  .stage[data-shot=close] .side{left:auto}
+  .stage[data-shot=close] .brief{width:100%}
+}
+
+/* ===== 档案首页（没有 ?relic= 时）：一句话 + 一块面板 + 一个按钮 ===== */
+.stage[data-mode=list] .side{justify-content:space-between}
+.stage[data-mode=list] .brief{display:none}
+.archive{display:none;align-self:flex-end;width:min(620px,100%);position:relative;padding:18px 20px 16px;
+  background:rgba(7,18,32,.72);border:1px solid rgba(111,227,245,.48);border-radius:6px;box-shadow:inset 0 0 28px rgba(111,227,245,.09)}
+.stage[data-mode=list] .archive{display:block;animation:holoIn .4s ease}
+.archive ol{list-style:none;margin-top:4px}
+.archive li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:14px;padding:10px 8px;border-top:1px solid rgba(111,227,245,.12)}
+.archive li:first-child{border-top:0}
+.archive li button.row{display:contents;text-align:left}
+.archive .code{font:12px var(--mono);color:var(--bone-dim)}
+.archive .nm b{display:block;font-size:16px}
+.archive .nm small{display:block;font:11px var(--mono);color:var(--bone-dim);letter-spacing:.04em}
+.archive .st{font:12px var(--mono);white-space:nowrap;padding:2px 8px;border-radius:2px;border:1px solid rgba(216,210,198,.25);color:var(--bone-dim)}
+.archive li.done .st{color:var(--green);border-color:rgba(143,240,138,.45)}
+.archive li.active{background:rgba(255,79,216,.07);border-left:2px solid #ff4fd8}
+.archive li.active .st{color:#ff8ae6;border-color:#ff4fd8}
+.archive li.next{background:rgba(255,180,84,.08);border-left:2px solid var(--amber)}
+.archive li.next .st{color:var(--amber);border-color:var(--amber)}
+.archive li.locked{opacity:.45}
+.archive li:not(.locked){cursor:pointer}
+.archive li:not(.locked):hover{background:rgba(111,227,245,.07)}
+.archive .thumb{width:44px;height:30px;object-fit:cover;border-radius:2px;border:1px solid rgba(143,240,138,.4)}
+.archive .code-cell{display:grid;place-items:center}
+.stage[data-mode=list] :is(.face,.beats){display:none}
+/* 完成后的任务卡：玩家自己拍的照片 */
+.card .shot{margin-top:12px}
+.card .shot img{display:block;width:100%;border-radius:3px;border:1px solid rgba(143,240,138,.45)}
+.card .shot small{display:block;margin-top:4px;font:11px var(--mono);color:var(--green)}
+.go[disabled]{cursor:default}
+.go.wait{background:rgba(216,210,198,.12);color:var(--bone-dim);box-shadow:none}
+.go.active{background:rgba(255,79,216,.14);color:#ff8ae6;box-shadow:none}
+</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div class="stage" id="stage" data-shot="brief" data-mode="brief">
+  <div class="floor"></div>
+
+  <header class="hud">
+    <span class="link"><span class="dot"></span><span id="hudTitle">遗迹任务简报 · RELIC BRIEFING</span></span>
+    <span class="bars" aria-label="信号强度"><i></i><i></i><i></i><i></i></span>
+    <span class="route">地球任务控制中心 → 月面中继 → <b id="hudHome">火星 · 着陆场</b></span>
+    <span class="sp"></span>
+    <button class="btn" id="back" hidden>‹ 遗迹档案</button>
+    <button class="btn" id="replay">重新调取</button>
+  </header>
+
+  <figure class="figure" id="figure">
+    <div class="pad"></div>
+    <img id="pose" alt="艾琳，全身">
+    <div class="sweep"></div>
+  </figure>
+
+  <div class="side">
+    <section class="archive" id="archive" aria-label="遗迹档案">
+      <div class="h-kick"><span>遗迹档案</span><span id="archCount"></span></div>
+      <div class="h-title">火星上的人类遗迹</div>
+      <ol id="archList"></ol>
+    </section>
+
+    <section class="brief" id="brief" aria-label="遗迹档案">
+      <nav class="tabs" id="tabs"></nav>
+      <div class="view" id="view">
+        <canvas id="cv"></canvas>
+        <div class="scan-rows"></div><div class="scan-cover"></div><div class="scan-line"></div>
+        <div class="mapbig" id="mapbig"></div>
+        <div class="callouts" id="callouts"><svg id="coLines"></svg></div>
+        <div class="cap">档案影像 · 1 : 1 复原<b id="capTitle"></b><span id="capSub"></span></div>
+        <div class="nosig">● 信号丢失</div>
+        <div class="lower" id="lower"></div>
+        <button class="replay" id="replaySlew" hidden>▶ 重放</button>
+        <div class="hint" id="hint">拖动旋转 · 滚轮缩放</div>
+        <div class="dims" id="dims"></div>
+        <div class="vload" id="vload">影像载入中…</div>
+      </div>
+      <aside class="card" id="card"></aside>
+    </section>
+
+    <section class="dialog" id="dialog" aria-live="polite">
+      <div class="face" id="face"><img id="faceImg" alt=""></div>
+      <div class="name"><b>艾琳</b><em>暂名</em><small>地球任务控制中心</small></div>
+      <span class="stamp">实时 · 延迟 1.8 秒</span>
+      <p class="line" id="line"></p>
+      <div class="act" id="act"></div>
+      <div class="beats" id="beats"></div>
+    </section>
+  </div>
+
+  <div class="connect" id="connect">
+    <div class="cbox">
+      <h2>正在调取遗迹档案</h2>
+      <div class="row"><span>档案</span><b id="cFile"></b></div>
+      <div class="row"><span>发出方</span><b>地球任务控制中心</b></div>
+      <div class="row"><span>附件</span><b id="cAttach">1 : 1 复原影像</b></div>
+      <div class="meter"><i id="meter" style="animation:none"></i></div>
+      <div class="lock" id="lock">经月面中继接入……</div>
+      <div class="skip">点击跳过</div>
+    </div>
+  </div>
+  <div class="cutter" id="cutter"></div>
+</div>
+<script type="module" src="../src/relics/brief/archive.js"></script>
+</body>
+</html>

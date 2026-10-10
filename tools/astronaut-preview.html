@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>COSMOS · 宇航员资产预览</title>
+  <style>
+    :root{font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#20333e;background:#e8eef1;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;overflow:hidden}button,a{-webkit-tap-highlight-color:transparent}
+    #viewport{position:fixed;inset:0}canvas{display:block;touch-action:none;outline:none}
+    .ui{position:fixed;z-index:2}header{top:32px;left:36px;pointer-events:none}
+    .eyebrow{font-size:11px;letter-spacing:.22em;color:#627987;font-weight:650}
+    h1{font-size:27px;letter-spacing:.06em;font-weight:530;margin:13px 0 9px}
+    header p{margin:0;color:#697e89;font-size:12px;line-height:1.8;max-width:270px}
+    .spec{display:flex;gap:18px;margin-top:22px;font-size:12px;color:#677c88}
+    .spec b{display:block;font-size:17px;font-weight:500;margin-bottom:4px;color:#294652;font-variant-numeric:tabular-nums}
+    #stats{top:34px;right:36px;text-align:right;color:#71838d;font-size:11px;line-height:1.9;font-variant-numeric:tabular-nums}
+    #stats strong{color:#355362;font-weight:550}#status{display:block;color:#395d70;margin-bottom:4px}
+    .controls{left:50%;bottom:27px;transform:translateX(-50%);width:min(860px,calc(100% - 48px));padding:16px 19px 12px;background:rgba(247,250,251,.92);border:1px solid #cdd8de;border-radius:14px}
+    .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.row+.row{margin-top:10px}
+    .label{min-width:39px;color:#7a8d96;font-size:10px;letter-spacing:.12em;font-weight:600}
+    button{border:1px solid transparent;border-radius:6px;background:transparent;color:#45606e;cursor:pointer;padding:7px 12px;font:inherit;font-size:12px;line-height:1.2;white-space:nowrap}
+    button:hover{background:#e9eff2;color:#214457}button[aria-pressed="true"]{background:#24495c;color:#fff;border-color:#24495c}
+    button:focus-visible,a:focus-visible{outline:2px solid #007dba;outline-offset:3px}button:disabled{opacity:.45;cursor:default}
+    #pause{margin-left:auto;border-color:#cdd8de}footer{display:flex;align-items:center;gap:16px;border-top:1px solid #dde5e9;margin-top:13px;padding-top:11px;font-size:10px;color:#7a8d98}
+    footer .hint{margin-right:auto}footer a{color:#4b6878;text-decoration:none;white-space:nowrap}footer a:hover{text-decoration:underline}
+    #failure{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);max-width:540px;padding:22px;background:#fff8f2;border:1px solid #d7b69c;color:#704622;font-size:13px;white-space:pre-wrap;line-height:1.7}
+    body.audit{width:1200px;height:1200px}body.audit .ui{display:none}body.audit #viewport{position:absolute;width:1200px;height:1200px;inset:0 auto auto 0}
+    @media(max-width:650px){header{top:21px;left:22px}h1{font-size:22px;margin:9px 0 6px}header p{font-size:10px;max-width:215px}.eyebrow{font-size:9px}.spec{gap:17px;margin-top:13px;font-size:10px}.spec b{font-size:14px}#stats{right:20px;top:22px;font-size:9px}.controls{bottom:16px;width:calc(100% - 28px);padding:12px}.row{gap:2px}.row+.row{margin-top:6px}.label{min-width:28px;font-size:9px}button{font-size:10px;padding:7px 8px}footer{font-size:9px;gap:12px;flex-wrap:wrap}.hint{flex-basis:100%}#pause{margin-left:0}}
+  </style>
+  <script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+  <main id="viewport" aria-label="可旋转和缩放的宇航员三维模型"></main>
+  <header class="ui">
+    <div class="eyebrow">COSMOS / EVA REFERENCE</div>
+    <h1>舱外宇航员</h1>
+    <p>白色压力服 · 透明球罩 · 生命保障背包<br>混元 3D 四视图生成 · Blender 蒙皮骨骼</p>
+    <div class="spec"><span><b id="height">1.90 m</b>外服高度</span><span><b>+Z</b>模型前向</span><span><b>01</b>独立角色</span></div>
+  </header>
+  <aside class="ui" id="stats" aria-live="off"><span id="status">正在准备模型</span><strong id="triangles">—</strong> 三角面<br><strong id="calls">—</strong> 绘制调用<br><span>模型基础颜色通道</span></aside>
+  <section class="ui controls" aria-label="资产预览控制">
+    <div class="row" aria-label="观察方向"><span class="label">视角</span><button data-view="front">正面</button><button data-view="rear">背面</button><button data-view="side">侧面</button><button data-view="hero">三分之四</button><button data-view="near">头盔近看</button></div>
+    <div class="row" aria-label="角色姿态"><span class="label">动作</span><button data-pose="standing">站立</button><button data-pose="walking">步行</button><button data-pose="seated">坐姿</button><button id="pause" disabled>暂停动作</button></div>
+    <div class="row" aria-label="材质诊断"><span class="label">显示</span><button data-mode="lit">原始材质</button><button data-mode="white">白模</button><button data-mode="normals">法线</button><button data-mode="wire">线框</button><button data-mode="grazing">掠射光</button></div>
+    <footer><span class="hint">拖动旋转 · 滚轮缩放 · 双指缩放</span><a href="../assets/models/astronaut.glb" download>下载 GLB ↗</a><a href="../blender/astronaut-hy3d/astronaut.blend" download>下载 Blender ↗</a></footer>
+  </section>
+  <pre id="failure" hidden></pre>
+  <script type="module">
+    import * as THREE from 'three';
+
+    const query=new URLSearchParams(location.search),audit=query.get('audit')==='1';
+    document.body.classList.toggle('audit',audit);
+    try {
+      const {loadAstronautModel}=await import('../src/journey/astronaut-model.js');
+      // Same joint angles the game drives (src/journey/astronaut.js).
+      const POSES={standing:{},walking:{thigh_R:-.42,thigh_L:.42,upperarm_R:.294,upperarm_L:-.294},
+        seated:{thigh_L:-1.3,thigh_R:-1.3,shin_L:.15,shin_R:.15,upperarm_L:-.85,upperarm_R:-.85,forearm_L:-.5,forearm_R:-.5}};
+      const scene=new THREE.Scene();scene.background=new THREE.Color(0xe8eef1);
+      const camera=new THREE.PerspectiveCamera(35,1,.01,100);
+      const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+      renderer.outputColorSpace=THREE.SRGBColorSpace;
+      renderer.toneMapping=audit?THREE.NoToneMapping:THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure=1;
+      renderer.setPixelRatio(audit?1:Math.min(devicePixelRatio,2));
+      renderer.shadowMap.enabled=!audit;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+      renderer.domElement.setAttribute('aria-label','拖动模型旋转，滚轮或双指缩放');
+      document.querySelector('#viewport').append(renderer.domElement);
+
+      const hemisphere=new THREE.HemisphereLight(0xffffff,0x71808b,.9);scene.add(hemisphere);
+      const key=new THREE.DirectionalLight(0xfffaf2,2.2);key.position.set(-3,5,4);key.castShadow=!audit;
+      key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-2;key.shadow.camera.right=2;key.shadow.camera.top=3;key.shadow.camera.bottom=-2;key.shadow.camera.near=.1;key.shadow.camera.far=12;key.shadow.normalBias=.008;key.shadow.bias=-.0002;scene.add(key);
+      const fill=new THREE.DirectionalLight(0xc7e4ff,.7);fill.position.set(3,2,-4);scene.add(fill);
+      const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0xd5e0e5,roughness:.94}));
+      floor.name='Preview floor';floor.rotation.x=-Math.PI/2;floor.position.y=-.004;floor.receiveShadow=true;floor.visible=!audit;scene.add(floor);
+      const grid=new THREE.GridHelper(12,24,0xb4c6cf,0xc9d7df);grid.name='Preview half-metre grid';grid.position.y=-.002;grid.material.transparent=true;grid.material.opacity=.32;grid.visible=!audit;scene.add(grid);
+      const asset=await loadAstronautModel();scene.add(asset.model);asset.model.updateMatrixWorld(true);
+      const canonicalBounds=new THREE.Box3().setFromObject(asset.statue);
+      const size=canonicalBounds.getSize(new THREE.Vector3());document.querySelector('#height').textContent=`${size.y.toFixed(2)} m`;
+      const target=canonicalBounds.getCenter(new THREE.Vector3());
+      const diagnostics={white:new THREE.MeshStandardMaterial({color:0xffffff,roughness:.8,metalness:0}),normals:new THREE.MeshNormalMaterial(),wire:new THREE.MeshBasicMaterial({color:0x294b60,wireframe:true})};
+      const poses=new Set(['standing','walking','seated']),modes=new Set(['lit','white','normals','wire','grazing']);
+      const views={front:[0,0],rear:[Math.PI,0],side:[Math.PI/2,0],hero:[THREE.MathUtils.degToRad(35),THREE.MathUtils.degToRad(18)],near:[0,.035],design:[THREE.MathUtils.degToRad(35),THREE.MathUtils.degToRad(18)],far:[THREE.MathUtils.degToRad(35),THREE.MathUtils.degToRad(18)]};
+      let azimuth=views.hero[0],elevation=views.hero[1],distance=4.5,view='hero',mode='lit',pose='standing',paused=false,phase=0;
+      const pointerPositions=new Map();let pinchDistance=0;
+      function activate(attribute,value){for(const button of document.querySelectorAll(`[data-${attribute}]`))button.setAttribute('aria-pressed',String(button.dataset[attribute]===value));}
+      function placeCamera(){camera.position.set(Math.sin(azimuth)*Math.cos(elevation)*distance,Math.sin(elevation)*distance,Math.cos(azimuth)*Math.cos(elevation)*distance).add(target);camera.lookAt(target);camera.updateMatrixWorld(true);}
+      function fit(box,occupancy){
+        const corners=[];for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z])corners.push(new THREE.Vector3(x,y,z));
+        const aspect=camera.aspect,shortX=Math.min(1,1/aspect),shortY=Math.min(1,aspect);
+        let low=.05,high=Math.max(size.length()*40,10);
+        for(let i=0;i<50;i++){
+          distance=(low+high)/2;placeCamera();let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,behind=false;
+          for(const p of corners){const local=p.clone().applyMatrix4(camera.matrixWorldInverse);if(local.z>=-.01)behind=true;const q=p.clone().project(camera);minX=Math.min(minX,q.x);maxX=Math.max(maxX,q.x);minY=Math.min(minY,q.y);maxY=Math.max(maxY,q.y);}
+          if(behind||Math.max((maxX-minX)/(2*shortX),(maxY-minY)/(2*shortY))>occupancy)low=distance;else high=distance;
+        }
+        distance=high;
+      }
+      function render(){placeCamera();renderer.render(scene,camera);}
+      function displayOccupancy(){
+        if(audit)return .68;
+        const controlHeight=document.querySelector('.controls').getBoundingClientRect().height;
+        const availableHeight=Math.max(180,innerHeight-controlHeight-80);
+        return .8*Math.min(innerWidth,availableHeight)/Math.min(innerWidth,innerHeight);
+      }
+      function setView(name){
+        if(!views[name])throw Error(`未知视角：${name}`);
+        view=name;[azimuth,elevation]=views[name];target.copy(canonicalBounds.getCenter(new THREE.Vector3()));
+        if(name==='near'){
+          target.set(0,1.68,.02);const radius=.26;
+          fit(new THREE.Box3(target.clone().addScalar(-radius),target.clone().addScalar(radius)),.6);
+        }else fit(canonicalBounds,name==='far'?.35:displayOccupancy());
+        activate('view',name);render();return camera;
+      }
+      function setMode(name){
+        if(!modes.has(name))throw Error(`未知显示模式：${name}`);mode=name;scene.overrideMaterial=diagnostics[name]||null;
+        if(name==='grazing'){
+          const angle=views.hero[0]+THREE.MathUtils.degToRad(60),pitch=THREE.MathUtils.degToRad(12);
+          key.position.set(Math.sin(angle)*Math.cos(pitch)*6,Math.sin(pitch)*6,Math.cos(angle)*Math.cos(pitch)*6).add(canonicalBounds.getCenter(new THREE.Vector3()));
+          key.target.position.copy(canonicalBounds.getCenter(new THREE.Vector3()));key.target.updateMatrixWorld(true);hemisphere.intensity=.18;fill.intensity=.12;key.intensity=2.2;
+        }else{key.position.set(-3,5,4);key.target.position.set(0,0,0);key.target.updateMatrixWorld(true);hemisphere.intensity=.9;fill.intensity=.7;key.intensity=2.2;}
+        activate('mode',name);render();return mode;
+      }
+      function setPose(name){
+        if(!poses.has(name))throw Error(`未知姿态：${name}`);pose=name;paused=false;phase=0;asset.pose(POSES[name]);
+        document.querySelector('#pause').disabled=name!=='walking';document.querySelector('#pause').textContent='暂停动作';
+        document.querySelector('#status').textContent={standing:'站立 · 规范姿态',walking:audit?'步行 · 固定示例姿态':'步行 · 连续动作',seated:'坐姿 · 驾驶座姿态'}[name];
+        activate('pose',name);if(view==='near')setView('near');else render();return pose;
+      }
+      function updateStats(){
+        // Sample exactly one model-only colour pass; floor and shadow passes are excluded.
+        const floorVisible=floor.visible,gridVisible=grid.visible,shadows=renderer.shadowMap.enabled;
+        floor.visible=grid.visible=false;renderer.shadowMap.enabled=false;render();
+        const counts={triangles:renderer.info.render.triangles,drawCalls:renderer.info.render.calls};
+        floor.visible=floorVisible;grid.visible=gridVisible;renderer.shadowMap.enabled=shadows;
+        document.querySelector('#triangles').textContent=counts.triangles.toLocaleString('zh-CN');document.querySelector('#calls').textContent=counts.drawCalls.toLocaleString('zh-CN');render();return counts;
+      }
+      function resize(){
+        const width=audit?1200:innerWidth,height=audit?1200:innerHeight;camera.aspect=width/height;
+        if(audit)camera.clearViewOffset();
+        else{const controlHeight=document.querySelector('.controls').getBoundingClientRect().height;camera.setViewOffset(width,height,0,(controlHeight+40)/2,width,height);}
+        camera.updateProjectionMatrix();renderer.setSize(width,height);setView(view);
+      }
+      for(const button of document.querySelectorAll('[data-view]'))button.onclick=()=>setView(button.dataset.view);
+      for(const button of document.querySelectorAll('[data-mode]'))button.onclick=()=>setMode(button.dataset.mode);
+      for(const button of document.querySelectorAll('[data-pose]'))button.onclick=()=>setPose(button.dataset.pose);
+      document.querySelector('#pause').onclick=()=>{paused=!paused;document.querySelector('#pause').textContent=paused?'继续动作':'暂停动作';document.querySelector('#status').textContent=paused?'步行 · 动作暂停':'步行 · 连续动作';};
+      function pointerGap(){const [a,b]=[...pointerPositions.values()];return a&&b?Math.hypot(a.x-b.x,a.y-b.y):0;}
+      renderer.domElement.addEventListener('pointerdown',event=>{pointerPositions.set(event.pointerId,{x:event.clientX,y:event.clientY});renderer.domElement.setPointerCapture(event.pointerId);pinchDistance=pointerGap();});
+      renderer.domElement.addEventListener('pointermove',event=>{
+        const previous=pointerPositions.get(event.pointerId);if(!previous)return;
+        pointerPositions.set(event.pointerId,{x:event.clientX,y:event.clientY});
+        if(pointerPositions.size===1){azimuth-=(event.clientX-previous.x)*.006;elevation=THREE.MathUtils.clamp(elevation+(event.clientY-previous.y)*.006,-.24,1.5);}
+        else{const gap=pointerGap();if(gap&&pinchDistance)distance=THREE.MathUtils.clamp(distance*pinchDistance/gap,.38,18);pinchDistance=gap;}
+        activate('view','');render();
+      });
+      for(const eventName of ['pointerup','pointercancel','lostpointercapture'])renderer.domElement.addEventListener(eventName,event=>{pointerPositions.delete(event.pointerId);pinchDistance=pointerGap();});
+      renderer.domElement.addEventListener('wheel',event=>{event.preventDefault();distance=THREE.MathUtils.clamp(distance*Math.exp(event.deltaY*.001),.38,18);render();},{passive:false});
+      addEventListener('resize',resize);
+      resize();setPose(poses.has(query.get('pose'))?query.get('pose'):'standing');setView(views[query.get('view')]?query.get('view'):'hero');setMode(modes.has(query.get('mode'))?query.get('mode'):'lit');updateStats();
+      window.__EVA_PREVIEW={asset,renderer,scene,camera,render,setView,setMode,setPose,get audit(){return audit;},get view(){return view;},get mode(){return mode;},get pose(){return pose;},getMetrics:updateStats};
+      let lastTime=performance.now(),lastStats=lastTime;
+      function frame(time){
+        const dt=Math.min((time-lastTime)/1000,.05);lastTime=time;
+        if(!document.hidden){
+          if(pose==='walking'&&!paused&&!audit){
+            phase+=dt*7.77;const swing=Math.sin(phase)*.42;
+            asset.pose({thigh_R:-swing,thigh_L:swing,upperarm_R:swing*.7,upperarm_L:-swing*.7});render();
+          }
+          if(time-lastStats>=1000){updateStats();lastStats=time;}
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }catch(error){
+      const failure=document.querySelector('#failure');failure.hidden=false;failure.textContent=`模型预览未能加载。\n${error.message}`;document.querySelector('#status').textContent='加载失败';console.error(error);
+    }
+  </script>
+</body>
+</html>

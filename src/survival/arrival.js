@@ -1,3 +1,4 @@
+import {solarOutput} from './solar-service.js';
 import * as THREE from 'three';
 import { createAstronaut } from '../journey/astronaut.js';
 import { mountCommandDeck } from '../journey/command-deck.js';
@@ -5,6 +6,13 @@ import {SITES,equipment,survey,powerAction,tickPower,cableUsed,POWER_CARGO,ROVER
 import {createPowerWorld} from './power-world.js';
 import { createArrivalWorld } from './world.js';
 import { SAVE_KEY, SUIT, CARGO, REFUGE, freshState, readSave, applyAction, complete } from './state.js';
+import { createOutpost } from '../journey/outpost-model.js';
+import { findSite } from '../journey/outpost-layout.js';
+
+/** Sites the outpost avoids: the refuge itself, the three cargo pallets, and the power candidates,
+ * all of which already own their ground. */
+const OUTPOST_AVOID=[{x:0,z:0,radius:26},...CARGO.map(c=>({x:c.x,z:c.z,radius:14})),
+  ...SITES.map(p=>({x:p.x,z:p.z,radius:26}))];
 
 export function mountArrival({scene,camera,canvas,heightAt}){
   for(const file of ['../journey/mobility.css','./arrival.css']){const link=document.createElement('link');link.rel='stylesheet';link.href=new URL(file,import.meta.url);document.head.append(link);}
@@ -13,7 +21,15 @@ export function mountArrival({scene,camera,canvas,heightAt}){
   const loaded=readSave(storage);let state=loaded.state,saveError=!!loaded.error,modal=null,cycle=null,drop=null,unload=null,saveTimer=0,selfTest=null,logOverlay=false,returnGuidance=false,deck=null,deckTimer=0;
   const world=createArrivalWorld(scene,heightAt);world.setCargoDrop(state.delivery.landed?1:0);world.setPowerRelease(state.power.released?1:0);
   const powerWorld=createPowerWorld(scene,heightAt);powerWorld.rebuild(state.power);
-  const astronaut=createAstronaut({scene,camera,canvas,heightAt:world.floor,blocked:(x,z)=>world.blocked(x,z)||powerWorld.blocked(x,z),ceilingAt:world.ceiling});
+  // The forward outpost stands north of the refuge, ramp facing back toward it, so walking out of
+  // the airlock puts it straight ahead. Exterior only for now: the generated shell has no interior,
+  // so it blocks like any other hull and is not enterable yet.
+  // Measured, not hard-coded: a spot picked for one landing site is wrong at the next, and the
+  // scene already accepts ?lat=&lon=. findSite sweeps position and heading for the least drop under
+  // a 33 m footprint — the same measurement the player's own site survey will use later.
+  const outpostSite=findSite(heightAt,{avoid:OUTPOST_AVOID})||{x:0,z:-50,heading:0,spread:NaN};
+  const outpost=createOutpost({scene,heightAt,...outpostSite});
+  const astronaut=createAstronaut({scene,camera,canvas,heightAt:(x,z)=>outpost.floorAt(x,z)??world.floor(x,z),blocked:(x,z)=>world.blocked(x,z)||powerWorld.blocked(x,z)||outpost.blocked(x,z),ceilingAt:world.ceiling});
   if(world.blocked(state.player.x,state.player.z))state.player=state.environment==='inside'?freshState().player:{x:0,z:7,heading:0,firstPerson:false};
   function restore(){astronaut.start(state.player);astronaut.setView(state.player.firstPerson);}
   restore();
@@ -31,7 +47,8 @@ export function mountArrival({scene,camera,canvas,heightAt}){
   const labels=world.targets.map(t=>{const el=document.createElement('div');el.className='arrival-marker';ui.querySelector('.arrival-labels').append(el);return {t,el};});
   function capture(){if(cycle||drop||unload)return;const p=astronaut.position;state.player={x:p.x,z:p.z,heading:astronaut.heading,firstPerson:astronaut.view==='第一人称'};}
   function save(){capture();try{storage.setItem(SAVE_KEY,JSON.stringify(state));saveError=false;}catch{saveError=true;} $('arrival-save').textContent=saveError?'无法写入本机存档 · 请勿关闭页面':'本机自动保存 · 生存进度独立存储';}
-  function dispatch(action){const previous=structuredClone(state);capture();if(['start-power','plan-site','release-power-cargo','survey-site','install-power','connect-solar','connect-bus','commission-power'].includes(action.type)){state.power=powerAction(state.power,action,{eligible:complete(state),outside:state.environment==='outside',player:state.player,heightAt});powerWorld.rebuild(state.power);world.setPowerRelease(state.power.released?1:0);}else state=applyAction(state,action);save();render();notifyProgress(previous);}
+  function dispatch(action){const previous=structuredClone(state);capture();if(['start-power','plan-site','release-power-cargo','survey-site','install-power','connect-solar','connect-bus','commission-power','expand-solar','clean-solar','isolate-solar','reconnect-solar','cancel-solar-job'].includes(action.type)){state.power=powerAction(state.power,action,{eligible:complete(state),outside:state.environment==='outside',player:state.player,heightAt});powerWorld.rebuild(state.power);world.setPowerRelease(state.power.released?1:0);}else state=applyAction(state,action);save();render();notifyProgress(previous);}
+  let resumeJob=!!state.power.solar.job;
   const suitReady=()=>state.suit.length===4;
   function render(){
     const done=complete(state);ui.querySelector('.arrival-objective .eyebrow').textContent='CHAPTER 01 / 抵达';ui.classList.toggle('arrival-complete',done);
@@ -43,8 +60,8 @@ export function mountArrival({scene,camera,canvas,heightAt}){
     if(state.power.started){
       const p=state.power;ui.querySelector('h1').innerHTML=p.online?'营地电源已就绪。':'先选好位置，<br>再接通第一路电。';
       ui.querySelector('.arrival-objective .eyebrow').textContent='CHAPTER 01 / 选址接电';
-      $('arrival-next').textContent=p.online?'第②步完成。下一步：部署压力帐篷并检漏入住。':!p.plan?'打开选址与接电，比较三个候选位置。':!p.released?'返回 02 能源货箱，释放重件托盘给卸货机构。':!p.site?'沿场景标记步行到候选地，现场确认地基。':!p.installed?'地基已确认，让卸货机构拖运并展开随船电源套件。':!p.links.includes('solar')?'走近主电池，连接太阳能输入端口。':!p.links.includes('bus')?'走近配电箱，连接主电池输出端口。':'在配电箱处完成通电验收。';
-      $('arrival-checklist').innerHTML=[['能源托盘卸载',p.released],['现场选址',!!p.site],['电源设备展开',p.installed],['端口连接',p.links.length===2],['通电验收',p.online]].map(([n,d],i)=>`<li class="${d?'done':''}"><span>${d?'✓':i+1}</span><div>${n}</div></li>`).join('');
+      $('arrival-next').textContent=p.online?'第②步完成。下一步：部署压力帐篷并检漏入住。':!p.plan?'打开选址与接电，比较三个候选位置。':!p.released?'返回 02 能源货箱，释放重件托盘给卸货机构。':!p.site?'沿场景标记步行到候选地，现场确认地基。':!p.installed?'地基已确认，让卸货机构拖运并展开随船电源套件。':!p.solar.expanded?'到阵列操作点展开太阳能板，等待施工完成。':!p.links.includes('solar')?'走近主电池，连接太阳能输入端口。':!p.links.includes('bus')?'走近配电箱，连接主电池输出端口。':'在配电箱处完成通电验收。';
+      $('arrival-checklist').innerHTML=[['能源托盘卸载',p.released],['现场选址',!!p.site],['设备安装',p.installed],['太阳能板展开',p.solar.expanded],['端口连接',p.links.length===2],['通电验收',p.online]].map(([n,d],i)=>`<li class="${d?'done':''}"><span>${d?'✓':i+1}</span><div>${n}</div></li>`).join('');
     }
     $('power-readout').hidden=!state.power.started;
     $('power-readout').textContent=`主电池 ${state.power.energy.toFixed(2)} / 60 kWh · 电缆余量 ${100-cableUsed(state.power)} m · MU-7 ${state.power.online?ROVER_CHARGER_KW+' kW':'接口未投运'}`;
@@ -67,9 +84,10 @@ export function mountArrival({scene,camera,canvas,heightAt}){
     const p=state.power;
     if(!p.started){open('power','把第一路电接起来。','<p>物资与退路已确认。先比较地基，再返回 02 能源货箱释放重件托盘，由卸货机构拖运到选址展开太阳能、主电池和配电箱，最后逐一连接端口。</p><p class="fine">从已核对物资中部署：太阳能2套中使用1套、主电池1套、配电箱1套、电缆最多100 m。教学白昼发电4 kW，配电验收负载0.2 kW；MU-7 快充接口按 36 kW 游戏调试值记账。</p>',[{label:'开始选址接电',primary:true,run(){dispatch({type:'start-power'});close();powerPanel();}}]);return;}
     const choices=SITES.map(site=>({site,check:survey(site,heightAt)}));
-    open('power',p.online?'第②步完成 · 电源已投运':'营地选址与接电',`<p>候选地采用当前地形采样，最大坡度需不超过16°。选择只放置引导标记；重件托盘必须先从 02 货箱释放，再到现场确认和安装。</p>${choices.map(({site,check})=>`<h3>${site.name} ${p.plan===site.id?'· 当前计划':''}</h3><p>距能源货箱 ${Math.round(Math.hypot(site.x-POWER_CARGO.x,site.z-POWER_CARGO.z))} m · 最大采样坡度 ${check.slope.toFixed(1)}° · ${check.ok?'地形合格':'坡度过大'}</p>`).join('')}${rows([['能源托盘',p.released?'已卸载 · 卸货机构接管':'仍在 02 货箱'],['太阳能套件余量',p.installed?'1 / 2 套':'2 / 2 套'],['主电池',p.energy.toFixed(2)+' / 60 kWh'],['MU-7 快充',p.online?ROVER_CHARGER_KW+' kW · 从主电池扣账':'接口未投运'],['剩余电缆',(100-cableUsed(p))+' m'],['光伏输入',p.links.includes('solar')?'已连接 · 4 kW':'未连接 · 0 kW'],['配电输出',p.online?'已验收 · 0.2 kW 教学负载':'未投运']])}<p class="fine">功率与电量分别记账。模拟1小时对应现实120秒；满电停充，面板打开、暂停、投放和卸货过程不推进电量。下一步压力帐篷尚未施工。</p>`,[...(!p.installed?choices.map(({site,check})=>({label:'选择 '+site.name,disabled:!check.ok,run(){dispatch({type:'plan-site',id:site.id});close();}})):[]),{label:'返回现场',primary:true,run:close}]);
+    open('power',p.online?'第②步完成 · 电源已投运':'营地选址与接电',`<p>候选地采用当前地形采样，最大坡度需不超过16°。选择只放置引导标记；重件托盘必须先从 02 货箱释放，再到现场确认和安装。</p>${choices.map(({site,check})=>`<h3>${site.name} ${p.plan===site.id?'· 当前计划':''}</h3><p>距能源货箱 ${Math.round(Math.hypot(site.x-POWER_CARGO.x,site.z-POWER_CARGO.z))} m · 最大采样坡度 ${check.slope.toFixed(1)}° · ${check.ok?'地形合格':'坡度过大'}</p>`).join('')}${rows([['能源托盘',p.released?'已卸载 · 卸货机构接管':'仍在 02 货箱'],['太阳能套件余量',p.installed?'1 / 2 套':'2 / 2 套'],['主电池',p.energy.toFixed(2)+' / 60 kWh'],['MU-7 快充',p.online?ROVER_CHARGER_KW+' kW · 从主电池扣账':'接口未投运'],['剩余电缆',(100-cableUsed(p))+' m'],['阵列状态',p.solar.expanded?'已展开':'未展开'],['积尘损失',(p.solar.dust*100).toFixed(1)+'%'],['光伏隔离',p.solar.isolated?'已隔离':'已接通'],['光伏输入',solarOutput(p.solar,1,p.links.includes('solar')).toFixed(2)+' kW'],['阵列作业',p.solar.job?(p.solar.job.type==='expand'?'展开':'无水除尘')+' · '+p.solar.job.elapsed.toFixed(1)+'秒':'无作业'],['配电输出',p.online?'已验收 · 0.2 kW 教学负载':'未投运']])}<p>维护：在阵列操作点3 m内，先隔离光伏，再无水除尘8秒，最后手动恢复并网。展开6秒；离开操作点取消，面板/暂停冻结作业。积尘以0.3%/模拟小时累积并降低发电，为教学抽象，不是实测。</p><p class="fine">功率与电量分别记账。模拟1小时对应现实120秒；满电停充，面板打开、暂停、投放和卸货过程不推进电量。下一步压力帐篷尚未施工。</p>`,[...(!p.installed?choices.map(({site,check})=>({label:'选择 '+site.name,disabled:!check.ok,run(){dispatch({type:'plan-site',id:site.id});close();}})):[]),...solarButtons(p),{label:'返回现场',primary:true,run:close}]);
   }
-  function powerTarget(){const p=state.power;if(!p.started||!p.plan||state.environment!=='outside')return null;if(!p.released)return {...POWER_CARGO,id:'power-device',action:'release-power-cargo',name:'释放能源托盘 · 卸货机构'};const site=SITES.find(x=>x.id===p.plan),eq=equipment(p.plan);return !p.site?{...site,id:'power-device',action:'survey-site',name:'现场确认 '+site.name}:!p.installed?{...site,id:'power-device',action:'install-power',name:'拖运并展开电源套件'}:!p.links.includes('solar')?{...eq.battery,id:'power-device',action:'connect-solar',name:'连接光伏输入 · 使用12 m电缆'}:!p.links.includes('bus')?{...eq.bus,id:'power-device',action:'connect-bus',name:'连接配电箱 · 使用6 m电缆'}:{...eq.bus,id:'power-device',action:p.online?'status':'commission-power',name:p.online?'查看营地电源':'通电验收'};}
+  function solarButtons(p){if(!p.installed)return [];const eq=equipment(p.site),onsite=state.environment==='outside'&&Math.hypot(state.player.x-eq.service.x,state.player.z-eq.service.z)<=3;return [['expand-solar','展开太阳能板',p.solar.expanded],['isolate-solar','隔离光伏输入',p.solar.isolated],['clean-solar','无水除尘',false],['reconnect-solar','恢复光伏并网',!p.solar.isolated||!p.links.includes('solar')],['cancel-solar-job','取消当前作业',!p.solar.job]].filter(([, ,hidden])=>!hidden).map(([type,label])=>({label:label+(!onsite?' · 需到阵列操作点3m内':''),disabled:!onsite||(type==='cancel-solar-job'?!p.solar.job:!!p.solar.job)||(type==='clean-solar'&&(!p.solar.expanded||!p.solar.isolated||p.solar.dust<=.001)),run(){dispatch({type});close();}}));}
+  function powerTarget(){const p=state.power;if(!p.started||!p.plan||state.environment!=='outside')return null;if(!p.released)return {...POWER_CARGO,id:'power-device',action:'release-power-cargo',name:'释放能源托盘 · 卸货机构'};const site=SITES.find(x=>x.id===p.plan),eq=equipment(p.plan);return !p.site?{...site,id:'power-device',action:'survey-site',name:'现场确认 '+site.name}:!p.installed?{...site,id:'power-device',action:'install-power',name:'安装电源支架与电池'}:!p.solar.expanded?{...eq.service,id:'power-device',action:'expand-solar',name:p.solar.job?'展开作业中 · 保持在操作点旁':'展开太阳能板 · 6秒'}:!p.links.includes('solar')?{...eq.battery,id:'power-device',action:'connect-solar',name:'连接光伏输入 · 使用12 m电缆'}:!p.links.includes('bus')?{...eq.bus,id:'power-device',action:'connect-bus',name:'连接配电箱 · 使用6 m电缆'}:{...eq.bus,id:'power-device',action:p.online?'status':'commission-power',name:p.online?'查看营地电源':'通电验收'};}
   const compass=angle=>((angle%360)+360)%360;
   const manifestValue=(group,label)=>CARGO.find(c=>c.id===group)?.items.find(([name])=>name===label)?.[1]??'未记录';
   function changeView(){if(!logOverlay&&!modal&&!cycle&&!drop&&!unload){astronaut.cycle();render();save();}}
@@ -123,7 +141,7 @@ export function mountArrival({scene,camera,canvas,heightAt}){
     if(!deck)return;
     const p=state.power,inside=state.environment==='inside',target=nearest(),home=returnTarget();
     const locked=!!cycle||!!drop||!!unload,range=target.id==='door'?2.8:3,near=target.distance<=range;
-    const generation=p.installed&&p.links.includes('solar')?4:0;
+    const generation=solarOutput(p.solar,1,p.links.includes('solar'));
     const steps=[...$('arrival-checklist').children].map(li=>({label:li.querySelector('div').firstChild.textContent,done:li.classList.contains('done')}));
     const supplyReason=!suitReady()?'先完成四项宇航服自检':!state.refuge?'先到舱内终端确认应急储备':!inside?'需从应急舱内启动投放':'';
     const actions=[
@@ -135,7 +153,7 @@ export function mountArrival({scene,camera,canvas,heightAt}){
       ...(!state.delivery.landed?[{id:'supply',label:'投放地面补给',detail:'舱内启动 · 三组托盘',disabled:!!supplyReason||locked,reason:locked?'等待当前作业完成':supplyReason}]:[{id:'map',label:'现场导航',key:'M',detail:'真实位置 · 距离与方位',disabled:locked,reason:'等待当前作业完成'}]),
     ];
     const markers=[{x:0,z:inside?0:6,label:inside?'内气闸':'应急气闸',color:returnGuidance?'#f46b5e':'#22d3ee'},...(inside?[{...REFUGE,label:'储备终端'}]:state.delivery.landed?CARGO.map(c=>({x:c.x,z:c.z,label:c.code+' '+c.name,color:state.cargo.includes(c.id)?'#34d399':'#f5a524'})):[]),...(powerTarget()?[{...powerTarget(),label:powerTarget().name,color:'#34d399'}]:[])];
-    const transition=cycle?'气闸循环 · 双门互锁':drop?'地面补给投放中':unload?'能源托盘卸载中':null;
+    const job=p.solar.job;const transition=job?`${job.type==='expand'?'展开太阳能板':'无水除尘'} · ${Math.round(job.elapsed/(job.type==='expand'?6:8)*100)}% · 保持在操作点旁`:cycle?'气闸循环 · 双门互锁':drop?'地面补给投放中':unload?'能源托盘卸载中':null;
     const status=transition||(returnGuidance&&!inside?`返舱指引 · ${Math.round(home.bearing)}° / ${home.distance.toFixed(1)} m · ${home.distance<=2.8?'按 F 入舱':'WASD 步行返回'}`:`${inside?'应急舱内':'舱外步行'} · ${astronaut.view} · ${near?target.name+' [F]':'走近目标后按 F'}`);
     deck.update({mode:'survival',title:'EVA / 生存准备',subtitle:inside?'应急舱 · 安全区':'火星地表 · 舱外活动',status,
       heading:compass(180-astronaut.heading*180/Math.PI),position:{x:astronaut.position.x,z:astronaut.position.z},time:p.installed?`固定白昼 · 电网 ${p.hours.toFixed(2)} h`:'固定白昼 · 准备阶段',site:'先遣营地 · 独立生存入口',communications:'现场日志 · 无地球链路仿真',
@@ -146,9 +164,9 @@ export function mountArrival({scene,camera,canvas,heightAt}){
       markers,route:[],navLabel:returnGuidance?'返舱方位指引':'现场方位导航',emergency:{id:'return-home',label:returnGuidance?'取消返舱指引':'紧急回舱 · 导航至气闸',disabled:inside||locked,reason:inside?'当前已在应急舱内':locked?'等待当前作业完成':'标记真实气闸，按 WASD 自行返回'},paused:logOverlay||!!modal||document.hidden});
     labels.find(item=>item.t.id==='door')?.el.classList.toggle('arrival-marker-return',returnGuidance&&!inside);
   }
-  function nearest(){const p=astronaut.position,doorName=!suitReady()?'出舱前需完成宇航服自检':!state.delivery.landed?'先投放地面补给':'通过气闸出舱';const targets=state.environment==='inside'?[{id:'refuge',name:'检查应急储备',...REFUGE},{id:'door',name:doorName,x:0,z:0}]:[{id:'door',name:'通过气闸返回应急舱',x:0,z:6},...(state.delivery.landed?CARGO.map(c=>({...c,name:'核对 '+c.name})):[])];const power=powerTarget();if(power)targets.push(power);return targets.map(t=>({...t,distance:Math.hypot(p.x-t.x,p.z-t.z)})).sort((a,b)=>a.distance-b.distance)[0];}
+  function nearest(){const p=astronaut.position,doorName=!suitReady()?'出舱前需完成宇航服自检':!state.delivery.landed?'先投放地面补给':'通过气闸出舱';const targets=state.environment==='inside'?[{id:'refuge',name:'检查应急储备',...REFUGE},{id:'door',name:doorName,x:0,z:0}]:[{id:'door',name:'通过气闸返回应急舱',x:0,z:6},...(state.delivery.landed?CARGO.map(c=>({...c,name:'核对 '+c.name})):[])];const power=powerTarget();if(power)targets.push(power);return targets.map(t=>({...t,distance:Math.hypot(p.x-t.x,p.z-t.z)})).sort((a,b)=>a.distance-b.distance||(a.id==='power-device'?-1:b.id==='power-device'?1:0))[0];}
   function startSupplyDrop(){if(logOverlay||modal||cycle||drop||unload||state.delivery.landed||state.environment!=='inside'||!suitReady()||!state.refuge)return;capture();drop={elapsed:0};supplyCode.textContent='GROUND DELIVERY / CARGO';$('supply-text').textContent='补给托盘下降';supplyProgress.value=0;supplyTransition.querySelector('p').textContent='自动制导 · 三组托盘依次触地';supplyTransition.hidden=false;world.setCargoDrop(0);syncPause();render();}
-  function startPowerUnload(){if(logOverlay||modal||cycle||drop||unload||state.environment!=='outside'||!state.power.started||state.power.released||Math.hypot(state.player.x-POWER_CARGO.x,state.player.z-POWER_CARGO.z)>3)return;capture();unload={elapsed:0};supplyCode.textContent='GROUND HANDLING / POWER 02';$('supply-text').textContent='释放能源重件托盘';supplyProgress.value=0;supplyTransition.querySelector('p').textContent='卸货机构锁定 · 将电池 / 阵列交给拖运托盘';supplyTransition.hidden=false;world.setPowerRelease(0);syncPause();render();}
+  function startPowerUnload(){if(logOverlay||modal||cycle||drop||unload||state.environment!=='outside'||!state.power.started||state.power.released||Math.hypot(astronaut.position.x-POWER_CARGO.x,astronaut.position.z-POWER_CARGO.z)>3)return;capture();unload={elapsed:0};supplyCode.textContent='GROUND HANDLING / POWER 02';$('supply-text').textContent='释放能源重件托盘';supplyProgress.value=0;supplyTransition.querySelector('p').textContent='卸货机构锁定 · 将电池 / 阵列交给拖运托盘';supplyTransition.hidden=false;world.setPowerRelease(0);syncPause();render();}
   function interact(){if(logOverlay||modal||cycle||drop||unload)return;capture();const t=nearest();if(t.distance>(t.id==='door'?2.8:3))return;if(t.id==='door'){
       if(state.environment==='inside'&&!suitReady()){suitPanel();return;}
       if(state.environment==='inside'&&!state.refuge){refuge();return;}
@@ -163,7 +181,7 @@ export function mountArrival({scene,camera,canvas,heightAt}){
   const projected=new THREE.Vector3();let lastView=astronaut.view;
   function update(dt){
     if(document.hidden||logOverlay)return;
-    if(!modal&&!cycle&&!drop&&!unload){state.power=tickPower(state.power,dt);$('power-readout').textContent=`主电池 ${state.power.energy.toFixed(2)} / 60 kWh · 电缆余量 ${100-cableUsed(state.power)} m · MU-7 ${state.power.online?ROVER_CHARGER_KW+' kW':'接口未投运'}`;}
+    if(!modal&&!cycle&&!drop&&!unload){const eq=equipment(state.power.site),onsite=state.environment==='outside'&&eq&&Math.hypot(astronaut.position.x-eq.service.x,astronaut.position.z-eq.service.z)<=3;const hadJob=!!state.power.solar.job;if(onsite)resumeJob=false;state.power=tickPower(state.power,dt,{onsite:!!onsite,jobWaiting:resumeJob});if(hadJob&&!state.power.solar.job){save();render();}powerWorld.rebuild(state.power);$('power-readout').textContent=`主电池 ${state.power.energy.toFixed(2)} / 60 kWh · 电缆余量 ${100-cableUsed(state.power)} m · MU-7 ${state.power.online?ROVER_CHARGER_KW+' kW':'接口未投运'}`;}
     if(drop){drop.elapsed+=dt;const p=Math.min(1,drop.elapsed/4);world.setCargoDrop(p);supplyProgress.value=p;$('supply-text').textContent=p<.32?'01 / 生命补给下降':p<.58?'02 / 能源设备下降':p<.84?'03 / 建造维修下降':'三组托盘触地确认';if(p>=1){const previous=structuredClone(state);drop=null;state=applyAction(state,{type:'land-supplies'});notifyProgress(previous);world.setCargoDrop(1);supplyTransition.hidden=true;syncPause();save();render();}}
     if(unload){unload.elapsed+=dt;const p=Math.min(1,unload.elapsed/2.4);world.setPowerRelease(p);supplyProgress.value=p;$('supply-text').textContent=p<.35?'解除运输锁':'拖运托盘移出 02 货箱';if(p>=1){unload=null;dispatch({type:'release-power-cargo'});world.setPowerRelease(1);supplyTransition.hidden=true;syncPause();save();render();}}
     if(cycle&&!modal){cycle.elapsed+=dt;const t=cycle.elapsed;world.doors(t<.7?(state.environment==='inside'?'inner':'outer'):t>2.3?(state.environment==='inside'?'outer':'inner'):'closed');$('airlock-text').textContent=t<.7?'进入气闸，关闭入口':t<2.3?'双门锁闭 · 压力循环':'压力匹配 · 开启出口';ui.querySelector('.airlock-transition progress').value=t;
@@ -180,5 +198,5 @@ export function mountArrival({scene,camera,canvas,heightAt}){
   deck=mountCommandDeck({onAction:commandAction,onOverlay(value){capture();logOverlay=!!value;syncPause();updateDeck();}});
   save();render();
   deck.notify({title:loaded.exists?'生存进度已恢复':'先确认物资，再走向荒原',body:$('arrival-next').textContent,source:'生存任务'});
-  const api={astronaut,walking:true,active:false,update:updateWithPower,get state(){return structuredClone(state);},get cycling(){return !!cycle;},get dropping(){return !!drop;},get unloading(){return !!unload;},get paused(){return !!modal||logOverlay;},setPaused(value){if(value)pause();else if(modal)close();}};window.__SURVIVAL=api;return api;
+  const api={astronaut,outpost,walking:true,active:false,update:updateWithPower,get state(){return structuredClone(state);},get cycling(){return !!cycle;},get dropping(){return !!drop;},get unloading(){return !!unload;},get paused(){return !!modal||logOverlay;},setPaused(value){if(value)pause();else if(modal)close();}};window.__SURVIVAL=api;return api;
 }

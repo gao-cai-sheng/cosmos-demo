@@ -20,13 +20,13 @@
       <div class="home-actions"><button id="resume" hidden>继续探索</button><button id="start" class="primary">开始火星任务 <span>↗</span></button></div>
       <p class="save-note" id="save-note">进度会自动保存在这台设备上。</p>
     </section>
-    <aside class="home-signal"><span>目的地</span><strong>科普剌忒斯谷地</strong><p>13.375°S · 300.125°E</p><i></i><small>先从一次着陆开始。</small></aside>
+    <aside class="home-signal"><span>目的地</span><strong>埃律西昂平原</strong><p>4.375°N · 135.625°E</p><i></i><small>先从一次着陆开始。</small></aside>
     <footer class="home-footer">
       <ol class="home-sequence"><li><span>01</span> 在轨选址</li><li><span>02</span> 地表勘测</li><li><span>03</span> 穹顶建设</li><li><span>04</span> 驻地启用</li></ol>
       <details><summary>自由探索与场景工具</summary><div class="home-tools"><a href="tools/mars-orbit.html">火星轨道</a><a href="tools/mars-vista.html">地表驾驶</a><a href="park/index.html">穹顶公园</a><a href="tools/flight-console.html">航行操作台</a><a href="tools/flight-nav.html">游隼航线图</a><a href="tools/mars-weather.html">火星气象</a><a href="tools/mars-globe.html">地形实验室</a></div></details>
     </footer>
   </main>
-  <dialog id="new-game"><h2>开始一次新的先遣任务</h2><p>这会替换当前火星任务的进度和园区存档。月球档案独立保存。</p><div><button id="cancel-new">保留现有进度</button><button id="confirm-new" class="primary">开始新任务</button></div></dialog>
+  <dialog id="new-game"><h2>开始一次新的先遣任务</h2><p id="new-game-note">这会替换当前火星任务的进度和园区存档。月球档案独立保存。</p><form id="player-name-form"><label for="player-name">你的宇航员姓名</label><input id="player-name" name="playerName" autocomplete="off" required placeholder="中文或英文姓名" aria-describedby="player-name-help" style="display:block;box-sizing:border-box;width:100%;min-height:44px;margin:12px 0;padding:10px;font:inherit"><p id="player-name-help">请输入1–24个字符。你将担任指挥官与地质专家，其余队员使用系统姓名。</p></form><div><button id="cancel-new">保留现有进度</button><button id="confirm-new" type="submit" form="player-name-form" class="primary">开始新任务</button></div></dialog>
   <noscript>请启用 JavaScript，以启动火星任务。</noscript>
   <script type="module" src="src/journey/home.js"></script>
 </body>

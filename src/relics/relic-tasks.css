@@ -1,0 +1,30 @@
+/* 遗迹拍照：快门闪白、照片卡（src/relics/relic-tasks.js） */
+.relic-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 70; }
+.relic-flash.on { animation: relic-flash .42s ease-out; }
+@keyframes relic-flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+
+.relic-photo {
+  position: fixed; left: 16px; top: 64px; z-index: 71; margin: 0; width: min(300px, calc(100vw - 32px));
+  background: #0b1117ee; border: 1px solid #2b3a46; border-left: 3px solid #93a6b4; border-radius: 8px;
+  box-shadow: 0 16px 48px #000a; overflow: hidden; color: #dfe6ec; font: 13px/1.45 system-ui, sans-serif;
+}
+.relic-photo.ok { border-left-color: #34d399; }
+.relic-photo.in { animation: relic-card .32s ease-out; }
+@keyframes relic-card { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.relic-photo img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: #000; }
+.relic-photo figcaption { padding: 9px 12px 11px; display: grid; gap: 2px; }
+.relic-photo b { font-size: 14px; letter-spacing: .02em; }
+.relic-photo.ok b { color: #6ee7b7; }
+.relic-photo span { color: #93a6b4; }
+@media (prefers-reduced-motion: reduce) { .relic-flash.on, .relic-photo.in { animation: none; } }
+
+/* 提示条在浮层（化验台、遗迹档案，z-index 60）底下 */
+.relic-chip {
+  position: fixed; left: 16px; top: 64px; z-index: 55; max-width: min(360px, calc(100vw - 32px));
+  display: grid; gap: 1px; padding: 8px 12px; border-radius: 8px;
+  background: #0b1117d9; border: 1px solid #2b3a46; border-left: 3px solid #ff4fd8;
+  color: #dfe6ec; font: 13px/1.4 system-ui, sans-serif;
+}
+.relic-chip small { color: #ff8ae6; font-size: 11px; letter-spacing: .12em; }
+.relic-chip b { font-size: 15px; }
+.relic-chip span { color: #93a6b4; }

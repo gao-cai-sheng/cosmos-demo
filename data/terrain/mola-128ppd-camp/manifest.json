@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "id": "mola-megdr-128ppd-camp",
+  "label": "MOLA MEGDR 128 ppd · COSMOS camp prototype",
+  "body": "Mars",
+  "bodyRadiusKm": 3396.0,
+  "datum": "MOLA planetary radius datum",
+  "projection": "simple-cylindrical",
+  "bounds": {
+    "west": 299.125,
+    "east": 301.125,
+    "north": -12.375,
+    "south": -14.375
+  },
+  "tileSize": 256,
+  "priority": 20,
+  "encoding": {
+    "type": "signed-int16-m-rg",
+    "offset": 32768,
+    "nodata": -32768,
+    "unit": "m"
+  },
+  "levels": [
+    {
+      "id": "128ppd",
+      "ppd": 128.0,
+      "width": 256,
+      "height": 256,
+      "cols": 1,
+      "rows": 1,
+      "resolutionM": 463.05766716974557,
+      "path": "128ppd/{x}/{y}.png",
+      "elevationMinM": -5286.0,
+      "elevationMaxM": 3967.0
+    }
+  ],
+  "provenance": {
+    "format": "PDS3 IMG",
+    "sourceFile": "megt00n270hb.img",
+    "labelFile": "megt00n270hb.lbl",
+    "dataSetId": "MGS-M-MOLA-5-MEGDR-L3-V1.0",
+    "productId": "MEGT00N270HB.IMG",
+    "instrumentId": "MOLA",
+    "croppedFrom": {
+      "west": 270.0,
+      "east": 360.0,
+      "south": -44.0,
+      "north": 0.0
+    },
+    "nativePpd": 128.0,
+    "builder": "tools/build-terrain-tiles.py",
+    "generatedAt": "2026-09-21T06:14:34.317002+00:00"
+  }
+}

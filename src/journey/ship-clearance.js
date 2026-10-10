@@ -1,10 +1,13 @@
 // Height-aware NX07 collision in ship-local metres (+Y up, +Z bow).
 // The hull is a baked underside/top heightfield; landing gear, hatch leaves and
 // elevator decks are live solids. Objects are vertical columns [bottom, top].
+import {NX07_SCALE} from './landing-support.js';
 export const CLEARANCE_MARGIN = .15;
+// Hull extent (ship-local metres) with a small margin; follows the exported NX07 scale.
+const K = NX07_SCALE;
 
 /** Rasterise triangles into per-cell lowest and highest hull surface. */
-export function bakeHullField(meshes, {cell = .5, x0 = -38, z0 = -43, x1 = 38, z1 = 46} = {}) {
+export function bakeHullField(meshes, {cell = .5, x0 = -38 * K, z0 = -43 * K, x1 = 38 * K, z1 = 46 * K} = {}) {
   const nx = Math.ceil((x1 - x0) / cell), nz = Math.ceil((z1 - z0) / cell);
   const low = new Float32Array(nx * nz).fill(Infinity), high = new Float32Array(nx * nz).fill(-Infinity);
   const put = (x, z, y) => {

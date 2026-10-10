@@ -160,7 +160,7 @@
   <div class="row"><span>基准半径</span><b>3396.2 km</b></div>
 </div>
 
-<div class="hint">横拖 = 改变位置 · 竖拖 = 镜头俯仰 · 滚轮 = 高度 · 前进 = 公转 + 火星自转（倍速见左侧滑块）</div>
+<div class="hint">左拖 = 转动火星 · 右拖 = 镜头俯仰 · 左键单击 = 放下 / 取消着陆标记 · 滚轮 = 高度 · 前进 = 公转 + 火星自转（倍速见左侧滑块）</div>
 <div id="fade"></div>
 <div id="busy">正在载入 MOLA 高程…</div>
 <div id="err"></div>
@@ -170,7 +170,7 @@
 import { getJourney, startJourney, updateJourney, isJourneyMode, sceneURL, DEFAULT_SITE, getSettings } from '../src/journey/state.js';
 import { PLACES } from '../src/journey/landmarks.js';
 import { mountJourneyUI } from '../src/journey/ui.js';
-import { dragOrbitPitch, buildOrbitBasis, orbitPitchLimit } from '../src/journey/orbit-camera.js';
+import { dragOrbitPitch, buildOrbitBasis, orbitPitchLimit, dragOrbitView, slerpOrbitView, pickOrbitSurface, latLonVector } from '../src/journey/orbit-camera.js';
 const JOURNEY = isJourneyMode();
 const ORBIT_QS = new URLSearchParams(location.search);
 const FLIGHT_ORBIT = ORBIT_QS.get('flight') === '1';
@@ -190,7 +190,9 @@ if (JOURNEY && !getJourney()) startJourney();
 const errBox = document.getElementById('err');
 function fail(t,d){ errBox.style.display='block'; errBox.innerHTML='<b>'+t+'</b>'+(d||'');
   document.getElementById('busy').style.display='none'; }
-addEventListener('error', e => fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')));
+// ResizeObserver 的循环通知是浏览器的良性提醒，下一帧就会补送，不该当成脚本故障挡住画面。
+addEventListener('error', e => { if (/^ResizeObserver loop/.test(e.message || '')) return;
+  fail('脚本出错', e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')); });
 
 if (typeof window.MOLA === 'undefined')
   { fail('缺少 MOLA 数据', '需要 ../data/mola_4ppd.js'); throw new Error('no data'); }
@@ -791,6 +793,7 @@ function draw(){
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   drawLabels(C);
+  drawPin(C);
   telemetry();
   motionLabels();
 }
@@ -841,7 +844,7 @@ function telemetry(){
     '<div class="row"><span>太阳高度角</span><b style="color:'+seCol+'">'+se.toFixed(1)+'°</b></div>' +
     '<div class="row"><span>光照</span><b style="color:'+seCol+'">'+seDesc+'</b></div>' +
     row('地形夸张', '×'+S.exag.toFixed(1));
-  $('landLab').textContent = fmtLat(S.lat)+' / '+fmtLon(S.lon);
+  $('landLab').textContent = PIN.on ? fmtLat(PIN.lat)+' / '+fmtLon(PIN.lon)+' · 标记' : fmtLat(S.lat)+' / '+fmtLon(S.lon);
 }
 
 
@@ -1066,33 +1069,172 @@ function drawLabels(C){
 }
 
 /* ============================================================
+   着陆标记（大头针）
+   ------------------------------------------------------------
+   以前降落点 = 画面中央的星下点，屏幕上没有任何提示，玩家不知道自己选的是哪。
+   现在左键单击地表放一枚针，只能有一枚：点别处 = 改选，点针本身 = 取消。
+   针插在夸张后的地形面上（和地名标注同一规则），转到星球背面就藏起来，
+   但选择保留。任务模式下没有针就不能降落。
+   ============================================================ */
+const PIN = { on:false, lat:0, lon:0, t0:0 };
+const PIN_HEAD = 25, PIN_R = 6.5;
+
+/* 已经着陆过、从任务进来时，主按钮是「返回原站点」，不能改选落点 */
+function pinAllowed(){
+  return !(JOURNEY && !FLIGHT_ORBIT && getJourney()?.landed);
+}
+function setPin(lat, lon){
+  Object.assign(PIN, { on:true, lat, lon:((lon%360)+360)%360, t0:performance.now() });
+  pinChanged();
+}
+function clearPin(){
+  PIN.on = false;
+  pinChanged();
+}
+function pinChanged(){
+  $('landBtn').textContent = PIN.on ? '在标记点降落 ↓' : '在当前星下点降落 ↓';
+  if(ORBIT_GAME && orbitUI && !LAND.on){
+    orbitUI.setActions(orbitActions());
+    telemetryAt = 0;
+    updateOrbitMission(performance.now());
+  }
+}
+/* 针在屏幕上的落点；转到星球背面返回 null。点击判定当场算，不依赖上一帧画在哪。 */
+function pinScreen(C){
+  if(!PIN.on) return null;
+  const B = C.basis, cam = C.cam;
+  const n = latLonVector(PIN.lat, PIN.lon);
+  const r = 1 + heightAtJS(PIN.lat, PIN.lon)*S.exag/RM;
+  const P = [n[0]*r, n[1]*r, n[2]*r];
+  const view = [cam[0]-P[0], cam[1]-P[1], cam[2]-P[2]];
+  if((view[0]*P[0]+view[1]*P[1]+view[2]*P[2]) / (Math.hypot(...view)*r) <= 0.01) return null;
+  return project(P, cam, [B[0],B[1],B[2]], [B[3],B[4],B[5]], [B[6],B[7],B[8]], innerWidth, innerHeight);
+}
+function pinHit(x, y){
+  const sp = pinScreen(buildCamera());
+  if(!sp) return false;
+  return Math.hypot(x-sp[0], y-(sp[1]-PIN_HEAD)) < PIN_R+7 || Math.hypot(x-sp[0], y-sp[1]) < 9;
+}
+function pickScreen(x, y){
+  const C = buildCamera(), B = C.basis;
+  const W = innerWidth, H = innerHeight;
+  const u = ((x*2 - W)/H)*FOV, v = ((H - y*2)/H)*FOV;
+  const rd = [B[0]*u+B[3]*v+B[6], B[1]*u+B[4]*v+B[7], B[2]*u+B[5]*v+B[8]];
+  return pickOrbitSurface(C.cam, rd, (la, lo) => 1 + heightAtJS(la, lo)*S.exag/RM,
+                          1 + HMIN/RM*S.exag - 0.0005, 1 + HMAX/RM*S.exag + 0.0005);
+}
+function clickPin(x, y){
+  if(!pinAllowed()) return;
+  if(pinHit(x, y)){ clearPin(); orbitUI?.toast('已取消着陆标记'); return; }
+  const hit = pickScreen(x, y);
+  if(hit) setPin(hit.lat, hit.lon);          // 点到太空里：什么都不做，免得误删
+}
+
+function drawPin(C){
+  const sp = pinScreen(C);
+  if(!sp) return;
+  const W = innerWidth;
+  const [x, y] = sp;
+
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const age = (performance.now() - PIN.t0)/1000;
+  const drop = REDUCED_MOTION ? 1 : Math.min(1, age/0.22);
+  const hy = y - PIN_HEAD - (1-drop)*(1-drop)*22;          // 针头落下来
+  ox.save();
+  ox.setTransform(dpr,0,0,dpr,0,0);
+
+  if(!REDUCED_MOTION && age < 0.8){                       // 落地一圈波纹
+    const k = age/0.8;
+    ox.strokeStyle = `rgba(255,120,96,${(1-k)*0.8})`; ox.lineWidth = 1.5;
+    ox.beginPath(); ox.ellipse(x, y, 4+k*26, (4+k*26)*0.45, 0, 0, 6.2832); ox.stroke();
+  }
+  // 地面落点：小椭圆影子 + 准星圈
+  ox.fillStyle = 'rgba(0,0,0,.55)';
+  ox.beginPath(); ox.ellipse(x, y+1, 6, 2.6, 0, 0, 6.2832); ox.fill();
+  ox.strokeStyle = 'rgba(255,214,200,.9)'; ox.lineWidth = 1;
+  ox.beginPath(); ox.arc(x, y, 3, 0, 6.2832); ox.stroke();
+  // 针身
+  ox.strokeStyle = '#e9eef0'; ox.lineWidth = 1.6; ox.lineCap = 'round';
+  ox.beginPath(); ox.moveTo(x, y); ox.lineTo(x, hy+PIN_R-1); ox.stroke();
+  // 针头
+  ox.shadowColor = 'rgba(0,0,0,.7)'; ox.shadowBlur = 6;
+  const g = ox.createRadialGradient(x-2.2, hy-2.4, 0.5, x, hy, PIN_R);
+  g.addColorStop(0, '#ffd0c4'); g.addColorStop(0.35, '#ff6f57'); g.addColorStop(1, '#b8321f');
+  ox.fillStyle = g;
+  ox.beginPath(); ox.arc(x, hy, PIN_R, 0, 6.2832); ox.fill();
+  ox.shadowBlur = 0;
+
+  // 坐标牌：放在针头右边，贴右边缘时翻到左边
+  const line1 = '着陆标记', line2 = fmtLat3(PIN.lat)+'  '+fmtLon3(PIN.lon);
+  ox.font = '10px ui-monospace,SFMono-Regular,Menlo,monospace';
+  const w1 = ox.measureText(line1).width;
+  ox.font = '12px ui-monospace,SFMono-Regular,Menlo,monospace';
+  const w2 = ox.measureText(line2).width;
+  const bw = Math.max(w1, w2) + 16, bh = 36;
+  let bx = x + PIN_R + 8; if(bx + bw > W - 8) bx = x - PIN_R - 8 - bw;
+  const by = hy - bh/2;
+  ox.fillStyle = 'rgba(6,10,14,.86)';
+  ox.fillRect(bx, by, bw, bh);
+  ox.strokeStyle = 'rgba(255,111,87,.55)'; ox.lineWidth = 1;
+  ox.strokeRect(bx+.5, by+.5, bw-1, bh-1);
+  ox.textBaseline = 'middle';
+  ox.fillStyle = '#ff9f8a';
+  ox.font = '10px ui-monospace,SFMono-Regular,Menlo,monospace';
+  ox.fillText(line1, bx+8, by+11);
+  ox.fillStyle = '#f2f7f8';
+  ox.font = '12px ui-monospace,SFMono-Regular,Menlo,monospace';
+  ox.fillText(line2, bx+8, by+25);
+  ox.restore();
+}
+function fmtLat3(v){ return Math.abs(v).toFixed(3)+'°'+(v>=0?'N':'S'); }
+function fmtLon3(v){ return (((v%360)+360)%360).toFixed(3)+'°E'; }
+
+/* ============================================================
    交互
    ============================================================ */
 let drag=false, px=0, py=0;
-canvas.addEventListener('pointerdown', e=>{ if(orbitUI?.paused || LAND.on) return; drag=true; px=e.clientX; py=e.clientY; try { canvas.setPointerCapture(e.pointerId); } catch {} });
-canvas.addEventListener('pointerup', ()=>drag=false);
+/* 左键拖 = 转动火星（横竖都转），右键拖 = 镜头俯仰，左键单击 = 放下 / 取消着陆标记。
+   以前竖拖是俯仰：航向默认朝东，横拖只能改纬度，经度根本够不着，一些地方去不了。
+   按下后先不动，挪过 CLICK_SLOP 像素才算拖；没挪就松开算单击。 */
+const CLICK_SLOP = 5;
+const POINTER = { button:0, x0:0, y0:0, moved:false };
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+canvas.addEventListener('pointerdown', e=>{
+  if(orbitUI?.paused || LAND.on) return;
+  if(e.button !== 0 && e.button !== 2) return;
+  drag=true; px=e.clientX; py=e.clientY;
+  Object.assign(POINTER, { button:e.button, x0:e.clientX, y0:e.clientY, moved:false });
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+});
+canvas.addEventListener('pointerup', e=>{
+  const click = drag && !POINTER.moved && POINTER.button === 0;
+  drag=false;
+  if(click && !orbitUI?.paused && !LAND.on) clickPin(e.clientX, e.clientY);
+});
 canvas.addEventListener('pointercancel', ()=>drag=false);
-/* 轨道相机拖拽：横向仍抓住地表平移，纵向恢复为镜头俯仰。
-   这样保留原来的轨道选址/观察能力，同时与地表游隼的上下拖动视角保持一致。 */
 canvas.addEventListener('pointermove', e=>{
-  if(!drag) return;
+  if(!drag){ canvas.style.cursor = pinHit(e.clientX, e.clientY) ? 'pointer' : ''; return; }
+  if(!POINTER.moved){
+    if(Math.hypot(e.clientX-POINTER.x0, e.clientY-POINTER.y0) < CLICK_SLOP) return;
+    POINTER.moved = true;
+  }
   const dx = e.clientX-px, dy = e.clientY-py;
   px=e.clientX; py=e.clientY;
   if(!dx && !dy) return;
 
-  if(dy){
+  if(POINTER.button === 2){
+    if(!dy) return;
     S.pitch = dragOrbitPitch(S.pitch, dy, orbitPitchLimit(S.alt, RM, FOV));
     const shown = Math.round(S.pitch);
     $('pit').value = shown;
     $('pitLab').textContent = shown+'°';
+    return;
   }
-  if(!dx) return;
 
   const CAM = buildCamera(), B = CAM.basis;
   const Rv = [B[0],B[1],B[2]], Uv = [B[3],B[4],B[5]], F = [B[6],B[7],B[8]];
-  const la = S.lat*D2R, lo = S.lon*D2R;
 
-  /* 横向平移速度继续由光标下方地表距离决定，避免高轨/低轨手感突变。 */
+  /* 转动速度由光标下方地表距离决定：抓住哪块地，那块地就跟手走，高轨/低轨手感一致。 */
   const H2 = innerHeight, W2 = innerWidth;
   const cu = ((e.clientX*2 - W2)/H2)*FOV, cv = ((H2 - e.clientY)*2 - H2)/H2*FOV;
   let cd = [Rv[0]*cu+Uv[0]*cv+F[0], Rv[1]*cu+Uv[1]*cv+F[1], Rv[2]*cu+Uv[2]*cv+F[2]];
@@ -1105,16 +1247,10 @@ canvas.addEventListener('pointermove', e=>{
   let dist = S.alt;
   if(disc > 0){ const t = -bq - Math.sqrt(disc); if(t > 0) dist = t*RM; }
   dist = Math.max(S.alt*0.5, Math.min(dist, S.alt*8 + 200));
-  const k = dist * (2*FOV/H2) / RM / D2R;
 
-  const mv = [-dx*Rv[0], -dx*Rv[1], -dx*Rv[2]];
-  const east  = [-Math.sin(lo), 0, Math.cos(lo)];
-  const north = [-Math.sin(la)*Math.cos(lo), Math.cos(la), -Math.sin(la)*Math.sin(lo)];
-  const dN = mv[0]*north[0]+mv[1]*north[1]+mv[2]*north[2];
-  const dE = mv[0]*east[0] +mv[1]*east[1] +mv[2]*east[2];
-  const clat = Math.max(0.08, Math.cos(la));
-  S.lat = Math.max(-88, Math.min(88, S.lat + dN*k));
-  S.lon += dE*k/clat;
+  const next = dragOrbitView({ lat:S.lat, lon:S.lon, heading:S.hdg }, dx, dy, dist*(2*FOV/H2)/RM);
+  S.lat = next.lat; S.lon = next.lon; S.hdg = next.heading;
+  $('hdg').value = Math.round(S.hdg); $('hdgLab').textContent = Math.round(S.hdg)+'°';
 });
 canvas.addEventListener('wheel', e=>{
   if(orbitUI?.paused || LAND.on) return;
@@ -1252,7 +1388,7 @@ function syncViewPanel(){
    「飞下去了」：两个场景用的是同一份 MOLA 高程、同一个经纬度，
    中间只差一段镜头。
    ============================================================ */
-const LAND = { on:false, t0:0, ms:2400, alt0:0, pitch0:0, lat:0, lon:0 };
+const LAND = { on:false, t0:0, ms:2400, alt0:0, pitch0:0, lat:0, lon:0, view0:null };
 function beginLanding(){
   if(LAND.on) return;
   if(ORBIT_GAME && orbitUI?.paused) return;
@@ -1260,14 +1396,19 @@ function beginLanding(){
     location.href = sceneURL(getJourney().campuses.length ? 'park' : 'surface');
     return;
   }
+  if(ORBIT_GAME && pinAllowed() && !PIN.on) return;      // 任务里必须先放标记
   LAND.on = true; LAND.t0 = performance.now();
   LAND.alt0 = S.alt; LAND.pitch0 = S.pitch;
-  LAND.lat = S.lat; LAND.lon = ((S.lon % 360) + 360) % 360;
+  /* 有标记就落到标记上：镜头边下降边沿大圆飞到标记正上方 */
+  const target = PIN.on ? PIN : S;
+  LAND.lat = target.lat; LAND.lon = ((target.lon % 360) + 360) % 360;
+  LAND.view0 = { lat:S.lat, lon:S.lon, heading:S.hdg };
+  drag = false;
   if (ORBIT_GAME) {
-    const isCoprates = Math.abs(LAND.lat - DEFAULT_SITE.lat) < .001 && Math.abs(LAND.lon - DEFAULT_SITE.lon) < .001;
-    if (JOURNEY && !FLIGHT_ORBIT) updateJourney({ site: { lat: LAND.lat, lon: LAND.lon, name: isCoprates ? DEFAULT_SITE.name : '自选着陆区' } });
+    const isDefault = Math.abs(LAND.lat - DEFAULT_SITE.lat) < .001 && Math.abs(LAND.lon - DEFAULT_SITE.lon) < .001;
+    if (JOURNEY && !FLIGHT_ORBIT) updateJourney({ site: { lat: LAND.lat, lon: LAND.lon, name: isDefault ? DEFAULT_SITE.name : '自选着陆区' } });
     orbitUI.setActions([{id:'landing',label:'正在进入大气层',primary:true,disabled:true}]);
-    orbitUI.setObjective({ kicker:'轨道 / 进入', title:'跟随光，落向谷地', body:'轨道坐标已锁定。MU-7 将在着陆后展开。', progress:1 });
+    orbitUI.setObjective({ kicker:'轨道 / 进入', title:'跟随光，落向着陆区', body:'轨道坐标已锁定。MU-7 将在着陆后展开。', progress:1 });
   }
   if (REDUCED_MOTION) LAND.ms = 80;
   S.fly = false;
@@ -1280,6 +1421,9 @@ function stepLanding(now){
   const e = t*t*(3-2*t);
   S.alt   = LAND.alt0 * Math.pow(6/LAND.alt0, e);      // 指数收高度，视觉上才是匀速下坠
   S.pitch = LAND.pitch0 + (14 - LAND.pitch0)*e;
+  const tm = Math.min(1, t/0.7), em = tm*tm*(3-2*tm);   // 前 70% 飞到标记上方，后段垂直下落
+  const v = slerpOrbitView(LAND.view0, LAND.lat, LAND.lon, em);
+  S.lat = v.lat; S.lon = v.lon; S.hdg = v.heading;
   $('alt').value = altToSlider(S.alt);
   $('altLab').textContent = S.alt.toFixed(0)+' km';
   if(t > 0.55) $('fade').classList.add('on');
@@ -1339,41 +1483,56 @@ function loop(now){
 }
 
 let telemetryAt = 0;
+function orbitActions() {
+  const state = getJourney() || {site:DEFAULT_SITE,landed:false,campuses:[],commissioned:false};
+  const needPin = pinAllowed() && !PIN.on;
+  const landLabel = FLIGHT_ORBIT ? (PIN.on ? '在标记点降落' : '先点击地表放标记')
+    : state.landed ? '返回' + (state.campuses.length ? '先遣站' : '勘测现场')
+    : PIN.on ? '确认坐标，开始降落' : '先点击星球放标记';
+  return [
+    { id:'recommended', label:state.landed ? '定位原站点' : '定位推荐着陆区', onClick:() => {
+      const site = getJourney()?.landed ? getJourney().site : DEFAULT_SITE;
+      Object.assign(S, { lat:site.lat, lon:site.lon, hdg:90, alt:1800, pitch:5, sunFollow:true, sunElev:28, fly:false });
+      $('alt').value = altToSlider(S.alt); $('altLab').textContent = S.alt + ' km';
+      if(pinAllowed()) setPin(site.lat, site.lon); else pinChanged();
+      orbitUI.toast(`${site.name} · 着陆坐标已对准`);
+    } },
+    { id:'land', label:landLabel, primary:true, disabled:needPin, onClick:beginLanding },
+    ...(FLIGHT_ORBIT && state.landed ? [{id:'base',label:'返回先遣任务',onClick:()=>{location.href=sceneURL(state.campuses.length?'park':'surface');}}] : []),
+    ...(FLIGHT_ORBIT ? [{id:'track',label:S.fly?'锁定星下点':'跟随轨道',onClick:()=>{
+      S.fly=!S.fly; orbitUI.setActions(orbitActions());
+    }}] : []),
+  ];
+}
 function updateOrbitMission(now) {
   if (!orbitUI || now - telemetryAt < 250) return;
   telemetryAt = now;
   const state = getJourney() || {site:DEFAULT_SITE,landed:false,campuses:[],commissioned:false};
   const longitude = ((S.lon % 360) + 360) % 360;
-  orbitUI.setTelemetry([
+  const marking = pinAllowed();
+  orbitUI.setTelemetry(marking ? [
+    { label:'轨道高度', value:S.alt.toFixed(0) + ' km' },
+    { label:'标记纬度', value:PIN.on ? fmtLat3(PIN.lat) : '—' },
+    { label:'标记经度', value:PIN.on ? fmtLon3(PIN.lon) : '—' },
+    { label:'标记高程', value:PIN.on ? heightAtJS(PIN.lat, PIN.lon).toFixed(2) + ' km' : '—' },
+  ] : [
     { label:'轨道高度', value:S.alt.toFixed(0) + ' km' },
     { label:'星下点纬度', value:Math.abs(S.lat).toFixed(3) + (S.lat < 0 ? '°S' : '°N') },
     { label:'星下点经度', value:longitude.toFixed(3) + '°E' },
     { label:'地表高程', value:heightAtJS(S.lat, S.lon).toFixed(2) + ' km' },
   ]);
+  const pinText = PIN.on ? `着陆标记 ${fmtLat3(PIN.lat)} · ${fmtLon3(PIN.lon)}。点别处可改选，点大头针取消。` : '';
   orbitUI.setObjective({
     kicker:state.commissioned ? '先遣计划 / 已完成' : state.landed ? '轨道 / 重返站点' : '01 / 轨道选址',
     title:FLIGHT_ORBIT ? '游隼已切入火星轨道' : state.commissioned ? '荒原上已有一处灯火' : state.landed ? '地面的工作还在继续' : '选择第一处着陆点',
-    body:FLIGHT_ORBIT ? '正在随轨道前进。拖动调整位置，选择新的区域降落，或返回原先遣站。' : state.landed ? `${state.site.name}的进度已保存。可以继续观察火星，或返回原站点。` :
-      '推荐科普剌忒斯谷地。拖动观察其他区域，滚轮调整高度；准备好后，在当前星下点降落。',
+    body:FLIGHT_ORBIT ? (pinText || '正在随轨道前进。左键单击地表放下着陆标记；拖动转动火星，右键拖动调整俯仰。') : state.landed ? `${state.site.name}的进度已保存。可以继续观察火星，或返回原站点。` :
+      (pinText || `左键单击星球放下着陆标记，推荐${DEFAULT_SITE.name}。拖动转动火星，滚轮调整高度。`),
   });
 }
 
 if (ORBIT_GAME) {
   orbitUI = mountJourneyUI({ scene:'orbit', title:'火星在轨', onPause:() => { drag=false; } });
-  const state = getJourney() || {site:DEFAULT_SITE,landed:false,campuses:[],commissioned:false};
-  orbitUI.setActions([
-    { id:'recommended', label:state.landed ? '定位原站点' : '定位推荐谷地', onClick:() => {
-      const site = getJourney()?.landed ? getJourney().site : DEFAULT_SITE;
-      Object.assign(S, { lat:site.lat, lon:site.lon, alt:1800, pitch:5, sunFollow:true, sunElev:28, fly:false });
-      $('alt').value = altToSlider(S.alt); $('altLab').textContent = S.alt + ' km';
-      orbitUI.toast(`${site.name} · 着陆坐标已对准`);
-    } },
-    { id:'land', label:FLIGHT_ORBIT ? '在当前区域降落' : state.landed ? '返回' + (state.campuses.length ? '先遣站' : '勘测现场') : '确认坐标，开始降落', primary:true, onClick:beginLanding },
-    ...(FLIGHT_ORBIT && state.landed ? [{id:'base',label:'返回先遣任务',onClick:()=>{location.href=sceneURL(state.campuses.length?'park':'surface');}}] : []),
-    ...(FLIGHT_ORBIT ? [{id:'track',label:S.fly?'锁定星下点':'跟随轨道',onClick:()=>{
-      S.fly=!S.fly;document.querySelector('[data-action=track]').textContent=S.fly?'锁定星下点':'跟随轨道';
-    }}] : []),
-  ]);
+  orbitUI.setActions(orbitActions());
   updateOrbitMission(performance.now() + 300);
   addEventListener('cosmos:quality', event => { qualityLimit = event.detail === 'low' ? 1 : 1.6; DPRCAP = Math.min(DPRCAP, qualityLimit); });
 }

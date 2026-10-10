@@ -1,10 +1,25 @@
 import { readSave, complete } from '../survival/state.js';
 import { getJourney, startJourney, sceneURL, resumeScene, journeyStage } from './state.js';
+import { cleanPlayerName } from './player.js';
 const state = getJourney();
 const start = document.getElementById('start');
 const resume = document.getElementById('resume');
 const dialog = document.getElementById('new-game');
-function launch() { startJourney(); location.href = sceneURL('orbit'); }
+const nameInput = document.getElementById('player-name');
+const nameForm = document.getElementById('player-name-form');
+function launch(event) {
+  event.preventDefault();
+  const displayName = cleanPlayerName(nameInput.value);
+  nameInput.setCustomValidity(!displayName ? '请填写你的宇航员姓名。' : Array.from(displayName).length > 24 ? '姓名最多24个字符。' : '');
+  if (!nameInput.reportValidity()) return;
+  startJourney(undefined, { displayName }); location.href = sceneURL('orbit');
+}
+nameInput.addEventListener('input', () => nameInput.setCustomValidity(''));
+let composing = false;
+nameInput.addEventListener('compositionstart', () => { composing = true; });
+nameInput.addEventListener('compositionend', () => { composing = false; });
+nameInput.addEventListener('keydown', event => { if (event.key === 'Enter' && (composing || event.isComposing || event.keyCode === 229)) event.preventDefault(); });
+nameForm.addEventListener('submit', launch);
 if (state) {
   const names = { orbit:'轨道选址', survey:'地表勘测', deploy:'部署穹顶', build:'建设先遣站', complete:'返回先遣站' };
   resume.hidden = false; resume.classList.add('primary'); start.classList.remove('primary');
@@ -13,8 +28,12 @@ if (state) {
   document.getElementById('save-note').textContent = `${state.site.name} · ${state.survey.length} / 3 份勘测 · ${state.campuses.length} 座穹顶 · 本机存档`;
 }
 resume.addEventListener('click', () => { location.href = sceneURL(resumeScene()); });
-start.addEventListener('click', () => state ? dialog.showModal() : launch());
+start.addEventListener('click', () => {
+  document.getElementById('new-game-note').hidden = !state;
+  document.getElementById('cancel-new').textContent = state ? '保留现有进度' : '返回';
+  nameInput.value = ''; nameInput.setCustomValidity(''); dialog.showModal(); nameInput.focus();
+});
 document.getElementById('cancel-new').addEventListener('click', () => dialog.close());
-document.getElementById('confirm-new').addEventListener('click', launch);
+
 
 try { const survival=readSave(localStorage); if(survival.exists){ document.querySelector("#survival-start strong").textContent=survival.state.power.online?"营地电源已投运 · 返回营地 ↗":survival.state.power.started?"继续选址接电 ↗":complete(survival.state)?"物资已确认 · 开始选址接电 ↗":"继续生存准备 ↗"; } } catch {}

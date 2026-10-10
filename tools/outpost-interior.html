@@ -1,0 +1,54 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>前哨仓 · 舱内净空目视检查</title>
+<style>body{margin:0;background:#111;color:#ddd;font:12px ui-monospace,Menlo,monospace}canvas{display:block;width:100vw;height:auto}
+#lbl{position:absolute;top:0;left:0;pointer-events:none;transform-origin:0 0}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<div id="lbl"></div>
+<!-- 六个固定机位站在舱内看内壁。壁厚和净空由 scripts/audit-outpost-closure.mjs 出数字，
+     但数字说不出「走进去是什么感觉」—— v4 就是审计全绿、量化达标，走近一看面板是平面着色。
+     橙色人形 1.75 m 站在地板面 y=1.11 上；青色网格铺在同一高度，直接读舱腔在地板上有多宽。 -->
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const MODEL=new URLSearchParams(location.search).get('m')||'../blender/outpost-hy3d/work/refined.glb';
+const S=1.4;   // 成品尺度；机位和地板跟着乘，人形不乘（它是 1.75 m 的参照物）
+const W=640,H=420,COLS=3,ROWS=2;
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(W*COLS,H*ROWS,false);renderer.domElement.style.width='100vw';renderer.domElement.style.height='auto';renderer.setScissorTest(true);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.append(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x101416);
+scene.add(new THREE.HemisphereLight(0xffffff,0x33393c,0.55));
+// 舱内没有灯，靠一盏跟着相机走的头灯看内壁形状。
+const lamp=new THREE.PointLight(0xfff2dd,26*S*S,22*S,2);scene.add(lamp);
+// 1.75 m 人形站在地板面 y=1.11 上，用来直接读出「站不站得开」。
+function figure(x,z){const g=new THREE.Group();const m=new THREE.MeshStandardMaterial({color:0xe07b2a,roughness:.8});
+ const b=new THREE.Mesh(new THREE.CapsuleGeometry(.24,.95,6,12),m);b.position.y=1.11*S+.99;
+ const h=new THREE.Mesh(new THREE.SphereGeometry(.145,16,12),m);h.position.y=1.11*S+1.62;
+ g.add(b,h);g.position.set(x,0,z);return g;}
+// 地板参考网格，铺在 y=1.11，看舱腔在地板高度上有多宽。
+const deck=new THREE.GridHelper(34*S,68,0x44e0c0,0x2a6d63);deck.position.y=1.112*S;scene.add(deck);
+// 机位按设计尺度写，乘 S 使用。眼高 = 地板 + 1.6 m（不乘：那是人眼的真实高度）。
+const EYE=1.11*S+1.6;
+const SHOTS=[
+ ['居住 x=-12 → -X',[-12,0,-.35],[-16.4,0,-.35]],
+ ['居住 x=-12 → +Z 正面',[-12,0,-.35],[-12,0,3.0]],
+ ['居住 x=-9 → +X 颈部',[-9,0,-.35],[-5.0,0,-.35]],
+ ['气闸 x=-1 → +X',[-1,0,-.40],[3.6,0,-.40]],
+ ['气闸 x=2 → +X',[2,0,-.40],[6.0,0,-.40]],
+ ['设备 x=8 → +X',[8,0,-.40],[16.2,0,-.40]],
+].map(([n,p,l])=>[n,[p[0]*S,EYE,p[2]*S],[l[0]*S,EYE-0.3,l[2]*S]]);
+for(const [,ps,lk] of SHOTS){const d=new THREE.Vector3(...lk).sub(new THREE.Vector3(...ps));d.y=0;d.normalize().multiplyScalar(3.4*S);scene.add(figure(ps[0]+d.x,ps[2]+d.z));}
+new GLTFLoader().load(MODEL,g=>{
+ g.scene.traverse(o=>{if(o.isMesh){o.material.side=THREE.FrontSide;o.material.needsUpdate=true;}});
+ scene.add(g.scene);
+ const cam=new THREE.PerspectiveCamera(55,W/H,.05,80*S);
+ SHOTS.forEach(([name,pos,look],i)=>{
+  const cx=(i%COLS)*W, cy=(ROWS-1-Math.floor(i/COLS))*H;
+  cam.position.set(...pos);cam.lookAt(...look);cam.updateProjectionMatrix();
+  lamp.position.set(pos[0],pos[1]+.2,pos[2]);
+  renderer.setViewport(cx,cy,W,H);renderer.setScissor(cx,cy,W,H);renderer.render(scene,cam);
+ });
+ document.getElementById('lbl').innerHTML=SHOTS.map(([n],i)=>
+  `<div style="position:absolute;left:${(i%COLS)*100/COLS+0.5}vw;top:${Math.floor(i/COLS)*H*100/(W*COLS)+0.4}vw;background:#000a;padding:1px 4px;font-size:10px">${i+1}. ${n}</div>`).join('');
+ document.title='READY '+MODEL;
+});
+</script>

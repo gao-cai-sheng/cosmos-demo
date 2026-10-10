@@ -1,9 +1,16 @@
+import { normalizeSupport } from './support.js';
 // One small save file follows the player through the existing static scenes.
+import { normalizePlayer } from './player.js';
 import { geoToLocal, localToGeo } from './route.js';
+import { normalizeMainlineSurvivalState } from './mainline-survival.js';
+import { TASK_ORDER } from '../relics/order.js';
 export const SAVE_KEY = 'cosmos.mars.journey.v1';
 export const SETTINGS_KEY = 'cosmos.mars.settings.v1';
 export const SURVEY_IDS = ['soil', 'power', 'comms'];
-export const DEFAULT_SITE = { lat: -13.375, lon: 300.125, name: '科普剌忒斯谷地' };
+// 默认着陆点：埃律西昂平原，洞察号着陆器以南约 7 km，坐标落在 MOLA 4 px/° 格子中心（D60）。
+// 原默认的科普剌忒斯谷底（-13.375, 300.125）实测停机坪 8 个朝向都落不下、周围近一半地面超过 16°，
+// 保留为轨道选址时可以自己标的高难度点。
+export const DEFAULT_SITE = { lat: 4.375, lon: 135.625, name: '埃律西昂平原' };
 const ROOT = new URL('../../', import.meta.url);
 let memory = null;
 let storageOK = true;
@@ -15,6 +22,26 @@ const name = (value, fallback) => typeof value === 'string' && value.trim()
 const vehicle = value => value && Number.isFinite(value.x) && Number.isFinite(value.z)
   ? { x: finite(value.x, 0, -200000, 200000), z: finite(value.z, 0, -200000, 200000),
       heading: finite(value.heading, 0), odo: finite(value.odo, 0, 0, 1e8) } : null;
+
+/** 遗迹任务进度（D65）：active 是正在做的一处，done 记完成时间。照片另存 RELIC_PHOTOS_KEY。 */
+function normalizeRelics(raw) {
+  const done = {};
+  for (const id of TASK_ORDER) {
+    const at = raw?.done?.[id]?.at;
+    if (Number.isFinite(at)) done[id] = { at };
+  }
+  const active = TASK_ORDER.includes(raw?.active) && !done[raw.active] ? raw.active : null;
+  return { active, done };
+}
+
+/** 任务卡进度（D70）：done 记每张做完的卡的时间。卡的顺序在 src/cards/deck.js，这里只存、只挡坏数据。 */
+function normalizeCards(raw) {
+  const done = {};
+  for (const [id, v] of Object.entries(raw?.done || {})) {
+    if (/^[0-9A-Za-z-]{1,12}$/.test(id) && Number.isFinite(v?.at)) done[id] = { at: v.at };
+  }
+  return { done };
+}
 
 export function normalizeJourney(raw) {
   if (!raw || raw.version !== 1 || !Number.isFinite(raw.startedAt)) return null;
@@ -31,6 +58,7 @@ export function normalizeJourney(raw) {
   }
   const greenhouseVisited = campuses.length > 0 && raw.greenhouseVisited === true;
   return {
+    player: normalizePlayer(raw.player),
     version: 1, startedAt: raw.startedAt, updatedAt: finite(raw.updatedAt, raw.startedAt),
     site: { lat: finite(site.lat, DEFAULT_SITE.lat, -88, 88),
       lon: ((finite(site.lon, DEFAULT_SITE.lon) % 360) + 360) % 360,
@@ -39,6 +67,10 @@ export function normalizeJourney(raw) {
     survey: raw.landed ? survey : [], rover: vehicle(raw.rover),
     campuses, parkRover: vehicle(raw.parkRover), greenhouseVisited,
     commissioned: campuses.length >= 2 && greenhouseVisited && raw.commissioned === true,
+    relics: normalizeRelics(raw.relics),
+    cards: normalizeCards(raw.cards),
+    support: normalizeSupport(raw.support),
+    mainlineSurvival: normalizeMainlineSurvivalState(raw.mainlineSurvival),
   };
 }
 
@@ -63,10 +95,10 @@ function write(value) {
   return getJourney();
 }
 
-export function startJourney(site = DEFAULT_SITE) {
+export function startJourney(site = DEFAULT_SITE, player = null) {
   const now = Date.now();
-  return write({ version: 1, startedAt: now, updatedAt: now, site,
-    landed: false, survey: [], rover: null, campuses: [], commissioned: false });
+  return write({ player, version: 1, startedAt: now, updatedAt: now, site,
+    landed: false, survey: [], rover: null, campuses: [], commissioned: false, relics: normalizeRelics(null) });
 }
 
 export function updateJourney(patch) {
@@ -74,12 +106,30 @@ export function updateJourney(patch) {
   return write({ ...current, ...patch, version: 1, startedAt: current.startedAt, updatedAt: Date.now() });
 }
 
+/** The mission's first landing site: where the outpost stands and the route chart's HOME points.
+ * Route and orbit arrivals never overwrite it (they run with explore=1, outside journey saves). */
+export function homeSite(state = getJourney()) {
+  return state?.landed ? state.site : DEFAULT_SITE;
+}
+
 /** The delivery pod lands once, at the mission's first landing site (the default valley without a landed mission).
  * `offset` is its local position in that site's scene; returns where it stands in the scene centred on `site`,
  * or position null when it is farther than `rangeM` (another landing site). */
 export function deliveryPod(site, offset, rangeM, state = getJourney()) {
-  const home = state?.landed ? state.site : DEFAULT_SITE, p = geoToLocal(localToGeo(offset, home), site);
+  const home = homeSite(state), p = geoToLocal(localToGeo(offset, home), site);
   return { home, position: Math.hypot(p.x, p.z) <= rangeM ? p : null };
+}
+
+/* 遗迹照片（缩略图 JPEG，每张约 30 KB）单独一个键，不塞进主存档。存不下就只丢照片，任务照样算完成。 */
+export const RELIC_PHOTOS_KEY = 'cosmos.mars.relic-photos.v1';
+export function relicPhotos() {
+  try { const v = JSON.parse(globalThis.localStorage?.getItem(RELIC_PHOTOS_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; }
+  catch { return {}; }
+}
+export function saveRelicPhoto(id, image) {
+  if (!TASK_ORDER.includes(id) || typeof image !== 'string') return false;
+  try { localStorage.setItem(RELIC_PHOTOS_KEY, JSON.stringify({ ...relicPhotos(), [id]: { image, at: Date.now() } })); return true; }
+  catch { return false; }
 }
 
 export function storageAvailable() { return storageOK; }
@@ -114,8 +164,8 @@ export function sceneURL(scene, extra = {}) {
 export function getSettings() {
   try {
     const raw = JSON.parse(globalThis.localStorage?.getItem(SETTINGS_KEY) || '{}');
-    return { quality: raw?.quality === 'low' ? 'low' : 'standard', sound: raw?.sound === true };
-  } catch { return { quality: 'standard', sound: false }; }
+    return { quality: raw?.quality === 'low' ? 'low' : 'standard', sound: raw?.sound !== false, voice: raw?.voice !== false };
+  } catch { return { quality: 'standard', sound: true, voice: true }; }
 }
 export function updateSettings(patch) {
   const settings = { ...getSettings(), ...patch };

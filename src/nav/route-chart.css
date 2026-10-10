@@ -89,6 +89,7 @@
 
 .rc-rel{display:grid;grid-template-columns:14px minmax(0,1fr) auto 36px;gap:8px;align-items:center;padding:7px 6px;border-radius:3px;margin-bottom:3px;background:#050a0f;border:1px solid transparent;cursor:pointer}
 .rc-rel.on{border-color:var(--amber)}
+.rc-rel.task{border-color:#ff4fd8;background:#1a0816} .rc-rel em{font-style:normal;color:#ff4fd8;font-weight:700}
 .rc-rel b{color:var(--hi)} .rc-rel small{display:block;color:var(--dim);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rc-rel span{color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}
 .rc-rel button{width:34px;height:30px;padding:0;font-size:15px}
@@ -123,3 +124,7 @@
   .rc-card{width:calc(100% - 94px)}
 }
 @media (pointer:coarse){ .rc-ops button{width:32px;height:32px} .rc-row{grid-template-columns:minmax(0,1fr) 44px 64px 48px 100px} }
+/* HOME：首次降落点（前哨基地） */
+.rc-sym.home{border-color:var(--green);background:var(--green);border-radius:1px 1px 0 0;clip-path:polygon(50% 0,100% 45%,100% 100%,0 100%,0 45%)}
+.route-chart .rc-pacts .home{color:var(--green);border-color:rgba(52,211,153,.6)}
+.route-chart .rc-zoom .home{color:var(--green);border-color:rgba(52,211,153,.6)}

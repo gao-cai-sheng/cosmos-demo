@@ -33,9 +33,7 @@ export function createArrivalWorld(scene,terrain){
   }
 
   const powerCargo=CARGO.find(c=>c.id==='power');
-  const powerPallet=new THREE.Group();powerPallet.name='Released power equipment pallet';root.add(powerPallet);
-  makeBox(powerPallet,0,.12,0,3.1,.24,1.7,dark);makeBox(powerPallet,-.72,.62,0,1.05,.8,1.15,metal);makeBox(powerPallet,.45,.43,-.35,1.1,.42,.62,mint);makeBox(powerPallet,.45,.43,.35,1.1,.42,.62,mint);
-  for(const x of [-1.15,1.15]){const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,.18,12),dark);wheel.rotation.z=Math.PI/2;wheel.position.set(x,.08,.72);powerPallet.add(wheel);const wheel2=wheel.clone();wheel2.position.z=-.72;powerPallet.add(wheel2);}
+  const powerPallet=createPowerPallet();root.add(powerPallet);
 
   const floor=(x,z)=>Math.abs(x)<=3.05&&z>=-5.1&&z<=1.05?deck:Math.abs(x)<=1.1&&z>1&&z<=4?deck:Math.abs(x)<=1.1&&z>4&&z<8?deck+(end-deck)*(z-4)/4:terrain(x,z);
   const blocked=(x,z)=>obstacles.some(o=>Math.abs(x-o.x)<o.w&&Math.abs(z-o.z)<o.d)||(cargoGrounded&&cargoObstacles.some(o=>Math.abs(x-o.x)<o.w&&Math.abs(z-o.z)<o.d))||(palletGrounded&&Math.abs(x-powerPallet.position.x)<1.8&&Math.abs(z-powerPallet.position.z)<1.15);
@@ -57,4 +55,15 @@ export function createArrivalWorld(scene,terrain){
     doors(phase){inner.position.y=deck+1.3+(phase==='inner'?2.6:0);outer.position.y=deck+1.3+(phase==='outer'?2.6:0);},
     setCargoDrop,setPowerRelease,
     targets:[{id:'refuge',name:'应急储备终端',...REFUGE},{id:'door',name:'应急舱气闸',x:0,z:6},...CARGO]};
+}
+
+/** Existing 3.1 m energy transport pallet, reused at unit scale by the mainline. */
+export function createPowerPallet(){
+  const material=c=>new THREE.MeshStandardMaterial({color:c,roughness:.75});
+  const dark=material(0x273c42),metal=material(0x748c8a),mint=material(0x83b9a9);
+  const makeBox=(parent,x,y,z,w,h,d,mat)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;parent.add(m);return m;};
+  const powerPallet=new THREE.Group();powerPallet.name='Released power equipment pallet';
+  makeBox(powerPallet,0,.12,0,3.1,.24,1.7,dark);makeBox(powerPallet,-.72,.62,0,1.05,.8,1.15,metal);makeBox(powerPallet,.45,.43,-.35,1.1,.42,.62,mint);makeBox(powerPallet,.45,.43,.35,1.1,.42,.62,mint);
+  for(const x of [-1.15,1.15]){const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,.18,12),dark);wheel.rotation.z=Math.PI/2;wheel.position.set(x,.08,.72);powerPallet.add(wheel);const wheel2=wheel.clone();wheel2.position.z=-.72;powerPallet.add(wheel2);}
+  return powerPallet;
 }

@@ -1,7 +1,7 @@
 import {SAVE_KEY,normalize} from '../survival/state.js';
 import {chargeRoverFromGrid,equipment} from '../survival/power.js';
 
-export function createSurvivalGrid(storage=globalThis.localStorage){
+export function createSurvivalGrid(storage=globalThis.localStorage,provider){
   let raw=null,state=null,dirty=false;
   try{
     const text=storage?.getItem?.(SAVE_KEY);
@@ -9,7 +9,7 @@ export function createSurvivalGrid(storage=globalThis.localStorage){
   }catch{raw=null;state=null;}
 
   const online=()=>!!state?.power?.online;
-  return {
+  const original = {
     get available(){return online();},
     get home(){if(!online())return null;const eq=equipment(state.power.site);return eq?{...eq.bus}:null;},
     get energy(){return online()?state.power.energy:null;},
@@ -24,4 +24,7 @@ export function createSurvivalGrid(storage=globalThis.localStorage){
       try{raw={...raw,power:state.power};storage.setItem(SAVE_KEY,JSON.stringify(raw));dirty=false;return true;}catch{return false;}
     }
   };
+  if(!provider)return original;
+  const active=()=>provider()||original;
+  return {get available(){return active().available;},get home(){return active().home;},get energy(){return active().energy;},charge:(...args)=>active().charge(...args),flush:()=>active().flush()};
 }

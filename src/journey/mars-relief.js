@@ -15,6 +15,65 @@ function vnoise2(x,y,s){
 }
 const ridge2=(x,y,s)=>1-Math.abs(vnoise2(x,y,s)*2-1);
 
+// Authored local geological experiment, not an observed DEM or a global height multiplier.
+// Elliptical mesas have broad caps and continuous shoulders; the low corridor between them stays open.
+export const MESA_FEATURES = Object.freeze([
+  {x:-780,z:-1100,rx:420,rz:620,height:92},
+  {x:850,z:-1500,rx:540,rz:720,height:128},
+  {x:-1850,z:-2450,rx:700,rz:930,height:155},
+  {x:2300,z:350,rx:680,rz:1050,height:110},
+].map(Object.freeze));
+
+export function geologicalRelief(x,z) {
+  // A full ship-sized arrival neighbourhood, with a gradual return to natural terrain.
+  const radius=Math.hypot(x,z);
+  if(radius<=240)return 0;
+  const safe=smooth(clamp((radius-240)/280));
+  let height=0;
+  for(const mesa of MESA_FEATURES){
+    const dx=(x-mesa.x)/mesa.rx,dz=(z-mesa.z)/mesa.rz;
+    const r=Math.hypot(dx,dz);
+    if(r>=1.3)continue;
+    // Low-frequency edge warping breaks perfect ellipses while leaving the broad cap intact.
+    const warp=(vnoise2(x/160,z/160,SEED+80)-.5)*.12;
+    const edge=r+warp*smooth(clamp((r-.35)/.3));
+    const cap=1-smooth(clamp((edge-.58)/.32));
+    const apron=1-smooth(clamp((edge-.82)/.42));
+    height+=mesa.height*(.78*cap+.22*apron);
+  }
+  return height*safe;
+}
+
+export const FOOTHILL_PEAKS=Object.freeze([
+  {x:-360,z:-650,rx:235,rz:330,height:205},
+  {x:-610,z:-820,rx:290,rz:390,height:250},
+  {x:370,z:-740,rx:240,rz:340,height:220},
+  {x:640,z:-520,rx:270,rz:310,height:185},
+].map(Object.freeze));
+
+export function foothillRelief(x,z){
+  if(Math.hypot(x,z)<=240)return 0;
+  let ridge=0;
+  for(const p of FOOTHILL_PEAKS){
+    const warp=(vnoise2(x/130,z/130,SEED+98)-.5)*.12;
+    const dx=(x-p.x)/p.rx+warp,dz=(z-p.z)/p.rz-warp*.6,r2=dx*dx+dz*dz;
+    if(r2>=1)continue;
+    const r=Math.sqrt(r2);
+    const shape=.82*Math.pow(1-r,1.15)+.18*Math.pow(1-r2,2);
+    const ribs=1+.18*(ridge2(x/75,z/165,SEED+95)-.5);
+    ridge=Math.max(ridge,p.height*shape*ribs);
+  }
+  // Join each pair with a lower saddle/backbone rather than isolated cone-like hills.
+  for(const [a,b] of [[FOOTHILL_PEAKS[0],FOOTHILL_PEAKS[1]],[FOOTHILL_PEAKS[2],FOOTHILL_PEAKS[3]]]){
+    const vx=b.x-a.x,vz=b.z-a.z;
+    const t=clamp(((x-a.x)*vx+(z-a.z)*vz)/(vx*vx+vz*vz));
+    const d=Math.hypot(x-a.x-vx*t,z-a.z-vz*t);
+    const shoulder=Math.pow(clamp(1-d/250),1.7);
+    ridge=Math.max(ridge,shoulder*(95+20*Math.sin(t*Math.PI)));
+  }
+  return ridge*smooth(clamp((Math.hypot(x,z)-240)/160))+geologicalRelief(x,z);
+}
+
 export function normalizeReliefLevel(value,fallback=1.5){
   const n=Number(value);
   return LEVELS.includes(n)?n:fallback;

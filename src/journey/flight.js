@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import {makeDriveInput} from '../../tools/rover/输入.js';
 import {createKestrel} from './kestrel-model.js';
 import {localToGeo} from './route.js';
-import {NX07,solveSupport} from './landing-support.js';
+import {NX07,NX07_SCALE,solveSupport} from './landing-support.js';
 
-export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site,onBoard,onLand,onOrbit,notify}){
- let auto=null,active=false,paused=false,landing=false,transfer=null,speed=0,vertical=0,yaw=0,camYaw=.4,camPitch=.24,distance=110,view=0,grounded=true;
+export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site,onBoard,onLand,onOrbit,notify,departureGuard=()=>''}){
+ let auto=null,active=false,paused=false,landing=false,transfer=null,speed=0,vertical=0,yaw=0,camYaw=.4,camPitch=.24,distance=110*NX07_SCALE,view=0,grounded=true;
+ // Chase-camera limits and the nose view scale with the hull (NX07_SCALE).
  const pos=new THREE.Vector3(),look=new THREE.Vector3(),asset=createKestrel(),craft=asset.group;craft.visible=false;scene.add(craft);
  const ctl=makeDriveInput(window,{canvas,enabled:false,touch:false,flight:true}),held=new Set();
  const touch=document.createElement('div');touch.className='flight-touch';touch.hidden=true;
@@ -16,12 +17,12 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
  const isTouch=matchMedia('(pointer:coarse)').matches||navigator.maxTouchPoints>0;
  function syncInput(){ctl.setEnabled(active&&!paused&&!transfer&&!landing);touch.hidden=!(isTouch&&active&&!paused&&!transfer&&!landing);}
  function park(p){if(active||auto)return false;yaw=p.heading||0;craft.position.set(p.x,0,p.z);craft.rotation.set(0,yaw,0);const fit=asset.fitGround(heightAt,blocked,{snap:true});pos.copy(craft.position);grounded=true;craft.visible=true;asset.update(0);return fit.valid;}
- // fromCargo: the crew arrived aboard ARES through the belly lift; takeoff still waits for door closure.
+ // fromCargo: the crew came up through a belly lift (aboard ARES, or on a crew deck); takeoff still waits for every port to close.
  function start({fromCargo=false}={}){
   if(active)return false;
   if(auto){notify('NX07 正在无人飞行召唤中，请等它降落后再登船。');return false;}
   if(craft.userData.assetState!=='ready'){notify('NX07 模型加载中，请稍候。');return false;}
-  if(!asset.doorClosed&&!fromCargo){notify('请先关闭腹舱，等升降平台收妥后登船。');return false;}
+  if(!asset.doorClosed&&!fromCargo){notify('请先关闭全部舱口，等升降平台收妥后登船。','door');return false;}
   onBoard();active=true;landing=false;if(grounded)speed=vertical=0;transfer=null;camYaw=.4;syncInput();if(!fromCargo)notify('NX07 已就绪。E 垂直起飞，离地后起落架自动收回。');return true;
  }
  function land(){
@@ -31,20 +32,23 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
   if(!fit.valid){notify(fit.reason);return false;}
   landing=true;speed=0;asset.prepareLanding?.(heightAt,blocked);asset.deployGear();syncInput();notify('起落架展开，正在垂直降落；四足触地找平后解除舱门锁。');return true;
  }
- function orbit(target=null){if(!active||landing||transfer)return;if(auto?.crewed)cancelPilot();if(pos.y-heightAt(pos.x,pos.z)<600){notify('先上升到离地 600 m，再启动轨道转移。');return;}if(!asset.doorClosed||asset.gearProgress>.001){notify('舱门及起落架尚未收妥。');return;}transfer={elapsed:0,from:pos.y,target};reset();syncInput();}
+ let lastDepartureReason='';
+ function permitDeparture(){const reason=departureGuard();if(reason){if(reason!==lastDepartureReason)notify(reason);lastDepartureReason=reason;return false;}lastDepartureReason='';return true;}
+ function requestTakeoff(){return permitDeparture()&&asset.requestTakeoff();}
+ function orbit(target=null){if(!permitDeparture())return false;if(!active||landing||transfer)return;if(auto?.crewed)cancelPilot();if(pos.y-heightAt(pos.x,pos.z)<600){notify('先上升到离地 600 m，再启动轨道转移。');return;}if(!asset.doorClosed||asset.gearProgress>.001){notify('舱门及起落架尚未收妥。','door');return;}transfer={elapsed:0,from:pos.y,target};reset();syncInput();}
  // Unmanned summon flight: same interlocks, takeoff, cruise and vertical landing as crewed flight.
  const CRUISE=70,wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
  // track() is polled every frame: {x,z,heading} = landing spot, {x,z,hover:true,radius} = follow and hold near the operator.
  function fly(track,done){
-  if(active||auto||!grounded)return false;
-  if(!asset.doorClosed){notify('请先关闭腹舱，再召唤 NX07。');return false;}
+  if(active||auto||!grounded||!permitDeparture())return false;
+  if(!asset.doorClosed){notify('请先关闭全部舱口，再召唤 NX07。','door');return false;}
   auto={track,done,target:track(0),phase:'lift',wait:0};return !!auto.target;
  }
  // Crewed autopilot (flight plan): same takeoff, terrain following and landing as the summon flight.
  // Any pilot input hands control back. Extra target: {climb:m, heading} holds position, climbs, turns, then calls done.
  function pilot(track,done){
-  if(!active||auto||landing||transfer)return false;
-  if(grounded&&!asset.doorClosed){notify('请先关闭腹舱，等升降平台收妥。');return false;}
+  if(!active||auto||landing||transfer||!permitDeparture())return false;
+  if(grounded&&!asset.doorClosed){notify('请先关闭全部舱口，等升降平台收妥。','door');return false;}
   auto={track,done,target:track(0),phase:grounded?'lift':'cruise',wait:0,crewed:true};
   if(!auto.target){auto=null;return false;}
   return true;
@@ -60,7 +64,7 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
   const next=auto.track(dt);if(next)auto.target=next;
   const t=auto.target,dx=t.x-pos.x,dz=t.z-pos.z,dist=Math.hypot(dx,dz);
   if(auto.phase==='lift'){
-   if(grounded){if(asset.requestTakeoff()){grounded=false;pos.y=rest+.10;notify(auto.crewed?'按航线自动起飞 · 起落架收回中':'NX07 无人起飞 · 起落架收回中');}else if((auto.wait+=dt)>20){const crewed=auto.crewed;auto=null;notify(crewed?'起飞联锁未解除，自动航线取消。':'NX07 起飞联锁未解除，召唤取消。');}return;}
+   if(grounded){if(requestTakeoff()){grounded=false;pos.y=rest+.10;notify(auto.crewed?'按航线自动起飞 · 起落架收回中':'NX07 无人起飞 · 起落架收回中');}else if((auto.wait+=dt)>20){const crewed=auto.crewed;auto=null;notify(crewed?'起飞联锁未解除，自动航线取消。':'NX07 起飞联锁未解除，召唤取消。');}return;}
    vertical=THREE.MathUtils.damp(vertical,30,1.5,dt);pos.y+=vertical*dt;
    if(asset.gearProgress<.001&&pos.y-rest>(t.climb?Math.min(CRUISE,t.climb):t.skim?Math.min(CRUISE,t.agl*.6):CRUISE))auto.phase='cruise';return;
   }
@@ -139,10 +143,10 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
  function update(dt){
   if(paused||document.hidden)return;dt=Math.min(.05,Math.max(0,dt));asset.update(dt);if(!active&&!auto)return;
   const rest=landingHeight(pos.x,pos.z);
-  if(auto&&!landing&&!auto.crewed){autoStep(dt,rest);craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0);return;}
+  if(auto&&!landing&&!auto.crewed){autoStep(dt,rest);craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0,'YXZ');return;}
   if(auto?.crewed&&!landing&&!transfer){
    const c=ctl.update(dt);if(c.camCycle)view=1-view;
-   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55,750);
+   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55*NX07_SCALE,750*NX07_SCALE);
    // The input layer reports brake=1 while the window is unfocused, so Space only counts with focus.
    const manual=Math.abs(c.throttle)>.05||Math.abs(c.steer)>.05||c.up||c.down||(c.brake&&document.hasFocus())||held.size>0;
    if(manual)cancelPilot('已转为手动飞行，自动航线取消。');else autoStep(dt,rest);
@@ -153,11 +157,11 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
    if(pos.y<=rest+.01)finishTouchdown();
   }else{
    const c=ctl.update(dt);if(c.camCycle)view=1-view;
-   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55,750);
+   camYaw-=c.lookX*.003;camPitch=THREE.MathUtils.clamp(camPitch+c.lookY*.003,-.2,1.2);if(!view&&c.zoom)distance=THREE.MathUtils.clamp(distance*Math.exp(c.zoom*.12),55*NX07_SCALE,750*NX07_SCALE);
    const up=(c.up&&!c.brake)||held.has('up'),down=c.down||held.has('down'),brake=c.brake||held.has('brake'),boost=c.boost?3:1;
    if(grounded){
     speed=vertical=0;
-    if(up&&!brake){if(asset.requestTakeoff()){grounded=false;pos.y=rest+.10;notify('垂直起飞 · 起落架自动收回');}else notify('请等待平台收妥、舱门关闭、起落架完成找平。');}
+    if(up&&!brake){if(requestTakeoff()){grounded=false;pos.y=rest+.10;notify('垂直起飞 · 起落架自动收回');}else if(!departureGuard())notify('请等待平台收妥、舱门关闭、起落架完成找平。','door');}
    }
    if(!grounded){
     const throttle=held.has('forward')?1:held.has('back')?-1:c.throttle,steering=held.has('right')?1:held.has('left')?-1:c.steer;
@@ -172,12 +176,13 @@ export function createFlyer({scene,camera,canvas,heightAt,blocked,ceilingAt,site
     pos.y=Math.max(rest+.10,Math.min(180000,pos.y+vertical*dt));
    }
   }
-  craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0);
+  // 'YXZ': yaw first, then pitch about the hull's own lateral axis; 'XYZ' tilts about world X and turns pitch into roll off the N-S headings.
+  craft.position.copy(pos);craft.rotation.set(grounded?0:THREE.MathUtils.clamp(-speed/650,-.10,.10),yaw,0,'YXZ');
   if(!active)return;
   const az=yaw+camYaw;
-  camera.position.set(pos.x-Math.sin(az)*distance*Math.cos(camPitch),pos.y+Math.sin(camPitch)*distance+10,pos.z-Math.cos(az)*distance*Math.cos(camPitch));camera.position.y=Math.max(camera.position.y,heightAt(camera.position.x,camera.position.z)+2);look.copy(pos).y+=3;
-  if(view){camera.position.set(pos.x+Math.sin(yaw)*36,pos.y+12,pos.z+Math.cos(yaw)*36);look.set(camera.position.x+Math.sin(az)*100,camera.position.y-Math.sin(camPitch-.24)*80,camera.position.z+Math.cos(az)*100);}
+  camera.position.set(pos.x-Math.sin(az)*distance*Math.cos(camPitch),pos.y+Math.sin(camPitch)*distance+10*NX07_SCALE,pos.z-Math.cos(az)*distance*Math.cos(camPitch));camera.position.y=Math.max(camera.position.y,heightAt(camera.position.x,camera.position.z)+2);look.copy(pos).y+=3*NX07_SCALE;
+  if(view){camera.position.set(pos.x+Math.sin(yaw)*36*NX07_SCALE,pos.y+12*NX07_SCALE,pos.z+Math.cos(yaw)*36*NX07_SCALE);look.set(camera.position.x+Math.sin(az)*100,camera.position.y-Math.sin(camPitch-.24)*80,camera.position.z+Math.cos(az)*100);}
   camera.lookAt(look);camera.fov=view?68:60;camera.updateProjectionMatrix();
  }
- return {asset,start,park,fly,pilot,cancelPilot,spawnAirborne,get summoning(){return !!auto&&!auto.crewed;},get piloting(){return !!auto?.crewed;},land,orbit,update,cycle(){view=1-view;},hold(id,value){if(!value)held.delete(id);else if(active&&!paused&&!landing&&!transfer&&['up','down','brake'].includes(id))held.add(id);},hover(){if(active&&!paused&&!landing&&!transfer){cancelPilot('已转为手动飞行，自动航线取消。');reset();speed=vertical=0;notify('主动悬停：已制动水平与垂直速度。');}},get verticalSpeed(){return vertical;},get grounded(){return grounded&&asset.supportReady;},get view(){return view?'前向视野':'跟随视野';},get active(){return active;},get position(){return pos;},get heading(){return yaw;},get speed(){return speed;},get altitude(){return grounded?0:Math.max(0,pos.y-heightAt(pos.x,pos.z));},get transferring(){return !!transfer;},get landing(){return landing;},setPaused(v){paused=v;reset();syncInput();},leave(){if(!active||landing||transfer||!grounded||!asset.supportReady||Math.abs(speed)>.5)return false;active=false;reset();syncInput();return true;}};
+ return {asset,start,park,fly,pilot,cancelPilot,spawnAirborne,get summoning(){return !!auto&&!auto.crewed;},get piloting(){return !!auto?.crewed;},land,orbit,update,cycle(){view=1-view;},hold(id,value){if(!value)held.delete(id);else if(active&&!paused&&!landing&&!transfer&&['up','down','brake'].includes(id))held.add(id);},hover(){if(active&&!paused&&!landing&&!transfer){cancelPilot('已转为手动飞行，自动航线取消。');reset();speed=vertical=0;notify('主动悬停：已制动水平与垂直速度。');}},get dustThrust(){return grounded||transfer?0:landing?.72:vertical>1?.9:.58;},get verticalSpeed(){return vertical;},get grounded(){return grounded&&asset.supportReady;},get view(){return view?'前向视野':'跟随视野';},get active(){return active;},get position(){return pos;},get heading(){return yaw;},get speed(){return speed;},get altitude(){return grounded?0:Math.max(0,pos.y-heightAt(pos.x,pos.z));},get transferring(){return !!transfer;},get landing(){return landing;},setPaused(v){paused=v;reset();syncInput();},leave(){if(!active||landing||transfer||!grounded||!asset.supportReady||Math.abs(speed)>.5)return false;active=false;reset();syncInput();return true;}};
 }

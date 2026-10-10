@@ -5,6 +5,7 @@
 
      行驶  throttle / steer / brake / tc
      视角  lookX / lookY / zoom / looking / up / down / boost / camCycle
+     步行  jump（空格，边沿）/ crouch（Z，按住）—— 只有 EVA 读这两个
 
    第二组是这次补的。上一版只有第一组，所以驾驶时相机既转不动
    也变不了焦 —— 相机机架每帧全权覆写位置和焦段，而没有任何输入
@@ -29,7 +30,7 @@ const 行驶键 = ['w', 'a', 's', 'd', ' ', 'shift', 'control',
 
 /**
  * @param {Window|HTMLElement} target 键盘监听挂在哪
- * @param {{canvas?:HTMLElement, pointerLock?:boolean, wheelStep?:number, enabled?:boolean, touch?:boolean}} opts
+ * @param {{canvas?:HTMLElement, pointerLock?:boolean, wheelStep?:number, enabled?:boolean, touch?:boolean, flight?:boolean, shiftBrake?:boolean}} opts
  *        canvas 不给就退回 document.body，鼠标事件挂在它上面
  */
 export function makeDriveInput(target = window, opts = {}) {
@@ -50,13 +51,15 @@ export function makeDriveInput(target = window, opts = {}) {
     lookX: 0, lookY: 0, zoom: 0, looking: false,
     up: false, down: false, boost: false,
     camCycle: false,          // 边沿触发：本帧按过 C 吗
+    jump: false,              // 边沿触发：本帧按下过空格吗（步行用；驾驶时空格是刹车）
+    crouch: false,            // 按住 Z。驾驶不读它
   };
 
   // 累加器。事件随时到，但每帧只消费一次并清零 ——
   // 不清零的话高刷屏上同一次滑动会被多帧重复读到。
   let accX = 0, accY = 0, accZoom = 0, moved = false;
   let dragging = false, lastX = 0, lastY = 0, dragPid = null;
-  let locked = false, camHit = false;
+  let locked = false, camHit = false, jumpHit = false;
 
   // 切模式、切窗口和触控取消时都清掉累积量，重上车不会读到旧输入。
   function reset() {
@@ -65,11 +68,11 @@ export function makeDriveInput(target = window, opts = {}) {
     for (const button of touchButtons.values()) button.dataset.active = 'false';
     dragging = false; dragPid = null;
     lastX = 0; lastY = 0;
-    accX = 0; accY = 0; accZoom = 0; moved = false; camHit = false;
+    accX = 0; accY = 0; accZoom = 0; moved = false; camHit = false; jumpHit = false;
     Object.assign(ctl, {
       throttle: 0, steer: 0, brake: 0,
       lookX: 0, lookY: 0, zoom: 0, looking: false,
-      up: false, down: false, boost: false, camCycle: false,
+      up: false, down: false, boost: false, camCycle: false, jump: false, crouch: false,
     });
   }
   function park() {
@@ -107,6 +110,8 @@ export function makeDriveInput(target = window, opts = {}) {
     if (e.repeat) return;
     if (k === 'y') ctl.tc = !ctl.tc;
     if (k === 'c') camHit = true;
+    // 空格在驾驶里是刹车（按住），步行里是跳（按下那一下）。两边读不同的字段，不冲突。
+    if (k === ' ') jumpHit = true;
   };
   // 即使焦点已进输入框，松键也必须释放之前按住的油门。
   const up = (e) => keys.delete(e.key.toLowerCase());
@@ -272,7 +277,8 @@ export function makeDriveInput(target = window, opts = {}) {
         cur + (want - cur) * Math.min(1, dt * (Math.abs(want) > Math.abs(cur) ? upR : dnR));
       ctl.throttle = rate(ctl.throttle, wantT, 3.2, 6.0);
       ctl.steer = rate(ctl.steer, wantS, 5.0, 9.0);
-      ctl.brake = (opts.flight ? has(' ') : has(' ', 'shift')) ? 1 : 0;
+      // shiftBrake:false 时 Shift 只做加速（ARES 与步行同一习惯），刹车只剩空格
+      ctl.brake = (opts.flight || opts.shiftBrake === false ? has(' ') : has(' ', 'shift')) ? 1 : 0;
 
       ctl.lookX = accX; ctl.lookY = accY; ctl.zoom = accZoom;
       ctl.looking = moved;
@@ -280,8 +286,12 @@ export function makeDriveInput(target = window, opts = {}) {
       ctl.down = has(opts.flight ? 'q' : 'z');
       ctl.boost = has('shift');
       ctl.camCycle = camHit;
+      ctl.jump = jumpHit;
+      // 蹲下用 Z 不用 Ctrl：Windows / Linux 的 Chrome 里 Ctrl+W 会直接关掉标签页，
+      // 而蹲着走正是要同时按住蹲和 W。
+      ctl.crouch = has('z');
 
-      accX = 0; accY = 0; accZoom = 0; moved = false; camHit = false;
+      accX = 0; accY = 0; accZoom = 0; moved = false; camHit = false; jumpHit = false;
 
       /* 手柄。右摇杆转视角，肩键变焦。乘 13 是把 0–1 换算成
          「一帧鼠标滑多少像素」的量级，和鼠标共用同一套灵敏度。 */

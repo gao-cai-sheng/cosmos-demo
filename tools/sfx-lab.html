@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COSMOS 音效试听</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0d12; --panel:#141821; --line:#252b38; --text:#e6e9ef; --dim:#8b93a5; --hot:#6fe3f5; --warn:#ffb454; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 28px 16px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 13px; letter-spacing: .08em; color: var(--dim); margin: 28px 0 8px; font-weight: 600; }
+  p.lead { color: var(--dim); margin: 0 0 14px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:10px; position:sticky; top:8px; z-index:2; }
+  .bar span { color: var(--dim); font-size: 13px; }
+  button { font: inherit; color: var(--text); background:#1c2230; border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; }
+  button:hover { border-color: var(--hot); }
+  button.on { background: var(--hot); color:#05060a; border-color: var(--hot); }
+  button.scene { border-color:#3a4458; }
+  .row { display:grid; grid-template-columns: 150px 1fr auto; gap:12px; align-items:center; padding:9px 12px; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .group { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .name { font: 13px ui-monospace, Menlo, monospace; color: var(--hot); }
+  .note { color: var(--text); }
+  .note small { display:block; color: var(--dim); }
+  .ctl { display:flex; gap:8px; align-items:center; }
+  input[type=range] { width: 110px; accent-color: var(--hot); }
+  #state { margin-left:auto; }
+  #state.bad { color: var(--warn); }
+  @media (max-width: 640px) { .row { grid-template-columns: 1fr auto; } .name { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>音效试听</h1>
+  <p class="lead">游戏里每个会响的地方都在这。点一下就听；不合适的记下名字，换素材见 <a href="../assets/sfx/CREDITS.md" style="color:var(--hot)">来源与许可</a>。</p>
+
+  <div class="bar">
+    <span>听的位置</span>
+    <button id="suit" class="on">舱外（隔着头盔，闷）</button>
+    <button id="cabin">舱内（清楚）</button>
+    <span id="state">点任意按钮开始</span>
+  </div>
+
+  <h2>连起来听</h2>
+  <div class="bar" style="position:static">
+    <button class="scene" data-scene="landing" data-sfx="none">开场降落 · 30 秒</button>
+    <button class="scene" data-scene="airlock" data-sfx="none">过气闸进舱 · 7 秒</button>
+    <button class="scene" data-scene="flight" data-sfx="none">起飞 → 飞 → 降落 · 14 秒</button>
+    <button class="scene" data-scene="alarm" data-sfx="none">舱门没关就起飞</button>
+    <button class="scene" data-scene="card" data-sfx="none">任务卡：出现 → 完成</button>
+    <button class="scene" data-scene="walk" data-sfx="none">舱外走 5 秒</button>
+    <button id="stop" data-sfx="none">停</button>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<script type="module">
+import { CUES, cueFiles } from '../src/journey/sfx-cues.js';
+import { sfx } from '../src/journey/sfx.js';
+import { createSfxWatch, createLandingAudio } from '../src/journey/sfx-watch.js';
+import { arrivalFrame } from '../src/journey/landing-timeline.js';
+
+const $ = id => document.getElementById(id);
+const state = $('state');
+sfx.muffle(1);
+
+// —— 清单：按节点分组 ——
+const groups = new Map();
+for (const [name, cue] of Object.entries(CUES)) { if (!groups.has(cue.node)) groups.set(cue.node, []); groups.get(cue.node).push([name, cue]); }
+const handles = new Map();
+for (const [node, cues] of groups) {
+  const h = document.createElement('h2'); h.textContent = node; $('list').append(h);
+  const box = document.createElement('div'); box.className = 'group'; $('list').append(box);
+  for (const [name, cue] of cues) {
+    const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = `<div class="name">${name}</div><div class="note">${cue.note}<small>${cue.loop ? '循环音' : cueFiles(name).length > 1 ? cueFiles(name).length + ' 个文件轮着播' : ''}${cue.bus === 'world' ? (cue.loop || cueFiles(name).length > 1 ? ' · ' : '') + '舱外会变闷' : ''}</small></div><div class="ctl"></div>`;
+    const ctl = row.querySelector('.ctl'), button = document.createElement('button'); button.dataset.sfx = 'none';
+    if (cue.loop) {
+      const handle = sfx.loop(name), level = Object.assign(document.createElement('input'), { type: 'range', min: 0, max: 1, step: .05, value: 1, title: '音量' });
+      const pitch = Object.assign(document.createElement('input'), { type: 'range', min: .5, max: 2, step: .05, value: 1, title: '音调' });
+      let on = false; const push = () => handle.set(on ? +level.value : 0, +pitch.value);
+      button.textContent = '开'; button.onclick = () => { on = !on; button.classList.toggle('on', on); button.textContent = on ? '关' : '开'; push(); };
+      level.oninput = pitch.oninput = push;
+      handles.set(name, { off() { on = false; button.classList.remove('on'); button.textContent = '开'; handle.set(0); } });
+      ctl.append(level, pitch, button);
+    } else { button.textContent = '▶ 听'; button.onclick = () => sfx.play(name); ctl.append(button); }
+    box.append(row);
+  }
+}
+
+// —— 舱内 / 舱外 ——
+function where(suit) { sfx.muffle(suit ? 1 : 0); $('suit').classList.toggle('on', suit); $('cabin').classList.toggle('on', !suit); }
+$('suit').onclick = () => where(true); $('cabin').onclick = () => where(false);
+$('suit').dataset.sfx = $('cabin').dataset.sfx = 'none';
+
+// —— 连起来听：和游戏用同一套判断（sfx-watch.js），只是状态是这里编的 ——
+let run = 0;
+const ship = (extra = {}) => ({ x: 0, z: 0, landed: true, locked: true, thrust: 0, speed: 0, transfer: false, ports: [true, true, true, true, true], motion: 0, ...extra });
+const snap = (extra = {}) => ({ paused: false, mode: 'walk', listener: { x: 0, z: 0 }, inside: false, airlock: null, walk: { speed: 0, airborne: false }, ship: ship(), carrier: null, rover: null, ...extra });
+function stop() { run++; for (const h of handles.values()) h.off(); for (const n of Object.keys(CUES)) if (CUES[n].loop) sfx.loop(n).set(0); where($('suit').classList.contains('on')); }
+/** 每帧调 frame(t, dt)；它返回 false 或者到了 seconds 就结束。 */
+function play(seconds, frame, done = () => {}) {
+  stop(); const id = run, t0 = performance.now(); let last = 0;
+  (function tick() {
+    if (id !== run) return;
+    const t = (performance.now() - t0) / 1000;
+    if (t >= seconds || frame(t, Math.min(.05, t - last)) === false) { done(); stop(); return; }
+    last = t; requestAnimationFrame(tick);
+  })();
+}
+const scenes = {
+  landing() { const audio = createLandingAudio(sfx); play(31, t => audio.update(Math.min(30, t), arrivalFrame(Math.min(30, t))), () => audio.finish()); },
+  airlock() { const watch = createSfxWatch(sfx); watch.update(.016, snap()); play(8.2, (t, dt) => watch.update(dt, snap(t < 7.2 ? { airlock: t } : { inside: true, walk: { speed: 1.4, airborne: false } }))); },
+  flight() {
+    const watch = createSfxWatch(sfx); watch.update(.016, snap({ mode: 'flight', walk: null }));
+    play(14, (t, dt) => watch.update(dt, snap({ mode: 'flight', walk: null, ship:
+      t < .1 ? ship() :
+      t < 4 ? ship({ landed: false, locked: false, thrust: .9, motion: Math.min(1, t / 3) }) :                 // 起飞，收起落架
+      t < 8 ? ship({ landed: false, locked: false, thrust: .58, speed: 90 * Math.min(1, (t - 4) / 2), motion: 1 }) :   // 平飞
+      t < 12 ? ship({ landed: false, locked: false, thrust: .72, motion: 1 - Math.min(1, (t - 8) / 3) }) :     // 放起落架，垂直降落
+      t < 12.8 ? ship({ locked: false }) : ship() })));                                                         // 触地，然后四足锁定
+  },
+  alarm() { const watch = createSfxWatch(sfx); watch.refuse('door'); },
+  card() { sfx.play('card-new'); setTimeout(() => sfx.play('card-done'), 1600); },
+  walk() { const watch = createSfxWatch(sfx); play(5, (t, dt) => watch.update(dt, snap({ walk: { speed: t < 3 ? 1.5 : 4, airborne: false } }))); },
+};
+for (const b of document.querySelectorAll('[data-scene]')) b.onclick = () => scenes[b.dataset.scene]();
+$('stop').onclick = stop;
+
+// —— 载入状态 ——
+addEventListener('pointerdown', async () => {
+  const files = await sfx.loaded(), bad = Object.entries(files).filter(([, seconds]) => !seconds).map(([file]) => file);
+  state.textContent = bad.length ? `有 ${bad.length} 个文件没载入：${bad.join('、')}` : `${Object.keys(files).length} 个文件已载入 · ${sfx.enabled ? '音效开' : '音效在设置里关着'}`;
+  state.classList.toggle('bad', bad.length > 0 || !sfx.enabled);
+}, { once: true });
+window.__LAB = { scenes, stop };
+</script>
+</body>
+</html>

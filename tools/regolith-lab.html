@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#161817">
+<meta name="description" content="COSMOS 火星风化层实验室：观察模拟岩相、探索晶相与光谱、比较原位资源。">
+<title>风化层实验室 · ARES GEO-CHEM</title>
+<link rel="stylesheet" href="./regolith-lab.css">
+</head>
+<body>
+<a class="skip-link" href="#observatory">跳到观测台</a>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="COSMOS 首页"><span class="brand-symbol" aria-hidden="true">✳</span> COSMOS <span class="brand-divider">/</span> <span class="brand-division">ARES SCIENCE</span></a>
+  <nav aria-label="实验室分区"><a href="#observatory">观测台</a><a href="#composition">成分分析</a><a href="#resources">资源评估</a></nav>
+  <span class="station-label"><span class="indicator-dot"></span> HAB–01</span>
+</header>
+<main id="mainAppLayout">
+  <section class="page-intro" aria-labelledby="pageTitle">
+    <div><p class="eyebrow">GEO-CHEMISTRY / FIELD LAB 01</p><h1 id="pageTitle">风化层实验室<span class="title-period">.</span></h1><p class="intro-description">观察岩相，解析谱线，寻找火星上的可用资源。</p></div>
+    <div class="intro-side"><span class="edition">REGOLITH<br>ANALYSIS SUITE</span><span class="simulation-label">模拟样本 · 演示参数</span></div>
+  </section>
+
+  <section class="sample-bar" aria-label="当前样本">
+    <div class="sample-index"><span class="eyebrow">SPECIMEN</span><span id="sampleOrdinal">01 <small>/ 04</small></span></div>
+    <div class="sample-selection"><label for="sampleSelector">选择分析样本</label><select id="sampleSelector" onchange="switchMarsSample(this.value)">
+      <option value="JEZERO">耶泽罗扇三角洲 · 水合泥岩</option>
+      <option value="GALE">盖尔撞击坑 · 硫酸盐风成沙</option>
+      <option value="OLYMPUS">塔尔西斯熔岩原 · 高镁玄武岩</option>
+      <option value="POLAR">北极多年冻土 · 水冰共晶壤</option>
+    </select></div>
+    <div class="sample-location"><span id="sampleId" class="eyebrow">SOL-892-JEZ</span><span id="txtSampleCoords">18.384°N, 77.581°E (6.4cm 深钻)</span></div>
+    <button onclick="exportVerdictReport()" class="tactile-btn report-btn"><span aria-hidden="true">↗</span> 复制化验报告</button>
+  </section>
+
+  <section id="observatory" class="observatory" aria-label="岩相与光谱观测台">
+    <article class="instrument microscope">
+      <header class="instrument-heading"><div><span class="section-number">01 / OPTICAL</span><h2>岩相观测</h2></div><span class="instrument-id">PETROGRAPHIC STAGE</span></header>
+      <div class="instrument-toolbar"><div class="segmented-strip" role="group" aria-label="显微光照模式"><button onclick="setIllum('VIS')" id="btnIllum_VIS" class="active" aria-pressed="true" title="自然白光反射">VIS <span>白光</span></button><button onclick="setIllum('XPL')" id="btnIllum_XPL" aria-pressed="false" title="正交偏光干涉双折射">XPL <span>偏光</span></button><button onclick="setIllum('UV')" id="btnIllum_UV" aria-pressed="false" title="365nm 深紫外荧光">UV <span>荧光</span></button></div><span class="magnification">100×</span></div>
+      <div id="microContainer" class="canvas-stage"><canvas id="microCanvas" aria-label="模拟岩相显微图；点击激发激光"></canvas><div class="optical-label">FIELD OF VIEW <span id="fovText">1.2 × 0.8 mm</span></div><div class="optical-scale">200 µm<span></span></div></div>
+      <div class="canvas-readout"><span id="illumModeLabel">明场自然白光反射 (VIS)</span><span id="laserCoordText">X: 0μm, Y: 0μm</span></div>
+      <div class="instrument-actions"><span class="target-readout"><span class="indicator-dot"></span><span id="targetMineralText">靶心微区: 探测就绪</span></span><button onclick="fireLaserProbe()" class="tactile-btn laser-btn"><span aria-hidden="true">⌖</span> 激光激发</button></div>
+      <p class="instrument-note">移动光标观察微区，点击样本或按钮激发。</p>
+    </article>
+
+    <article class="instrument spectrum">
+      <header class="instrument-heading"><div><span class="section-number">02 / SPECTROSCOPY</span><h2>光谱分析</h2></div><button onclick="triggerScanSweep()" class="tactile-btn primary-btn" id="btnScan"><span aria-hidden="true">▷</span> 扫描谱线</button></header>
+      <div class="instrument-toolbar spectrum-toolbar"><div class="spectrum-tabs" role="group" aria-label="谱仪模式"><button onclick="setDiagMode('XRD')" id="tab_XRD" class="tactile-btn active-amber" aria-pressed="true">XRD <span>晶相衍射</span></button><button onclick="setDiagMode('SAM')" id="tab_SAM" class="tactile-btn" aria-pressed="false">SAM <span>热解质谱</span></button><button onclick="setDiagMode('RAMAN')" id="tab_RAMAN" class="tactile-btn" aria-pressed="false">RAMAN <span>激光拉曼</span></button></div></div>
+      <div class="spectrum-display"><div class="spectrum-status"><span class="chart-label">RELATIVE INTENSITY</span><span class="scan-status" role="status"><span id="scanStatusDot" class="indicator-dot"></span><span id="scanStatusLabel">静态拟合已收敛</span><span id="scanProgressPct">100%</span></span></div><div id="diagCanvasContainer" class="canvas-stage"><canvas id="diagCanvas" aria-label="模拟光谱图；点击重新扫描"></canvas><div id="spectrumTooltip" class="spectrum-tooltip"><div class="tooltip-heading"><span id="tipAngle"></span><span id="tipInt"></span></div><dl><div><dt>物相</dt><dd id="tipPhase"></dd></div><div><dt>晶面</dt><dd id="tipHkl"></dd></div><div><dt>成因</dt><dd id="tipGenesis"></dd></div></dl></div></div></div>
+      <div class="canvas-readout spectrum-readout"><span id="spectrumAxisTitle">衍射角 (2θ Bragg, Cu-Kα λ=1.5406Å):</span><strong id="spectrumCursorVal">--</strong></div>
+      <div class="instrument-actions"><div class="plot-options"><button onclick="toggle2DRingOverlay()" id="btn2DToggle" class="tactile-btn" aria-pressed="false">CCD 衍射环</button><button onclick="toggleRietveldFit()" id="btnRietveldToggle" class="tactile-btn active-cyan" aria-pressed="true">Rietveld 拟合线</button></div><span class="chart-key"><i></i> 模拟谱线</span></div>
+      <div id="instrumentSubParamStrip" class="instrument-note instrument-params"><span>铜靶 <strong>30 kV / 10 mA</strong></span><span>Δ2θ <strong>&lt; 0.015°</strong></span><span>信噪比 <strong>46.2 dB</strong></span></div>
+    </article>
+  </section>
+
+  <section id="composition" class="analysis-section" aria-labelledby="compositionTitle">
+    <header class="section-heading"><div><span class="section-number">03 / COMPOSITION</span><h2 id="compositionTitle">样本成分</h2></div><p>从矿物晶相到主量化学</p></header>
+    <div class="composition-grid">
+      <article class="mineral-analysis"><div class="data-heading"><h3>矿物组成</h3><span id="txtCrystallinePct">质量占比 · wt%</span></div><div id="mineralStackedStrip" aria-label="矿物质量占比"></div><div id="mineralPillGrid"></div><div class="data-footnote"><span>Rietveld 晶相质量占比</span><span>Rwp <strong>3.82%</strong> / GOF <strong>1.14</strong></span></div></article>
+      <article class="oxide-analysis"><div class="data-heading"><h3>主量组分</h3><span>APXS / PIXL</span></div><div id="oxideBreakdownStrip"></div><p class="data-footnote">列示主要组分 · 质量百分比</p></article>
+    </div>
+  </section>
+
+  <section id="resources" class="analysis-section" aria-labelledby="resourceTitle">
+    <header class="section-heading"><div><span class="section-number">04 / RESOURCE POTENTIAL</span><h2 id="resourceTitle">原位资源与生存决断</h2></div><p id="txtRockClass">中性古湖相水合硅酸盐泥岩</p></header>
+    <div class="resource-grid">
+      <article class="resource-metric water"><span class="metric-index">01 — WATER</span><h3>提纯水产率</h3><strong id="txtWaterYield" class="metric-value">26.5 kg / t</strong><div class="gauge-track"><div class="gauge-fill" id="barWater"></div></div><p>脱水热耗 <strong id="txtWaterEnergy">28.4 kWh/t</strong></p></article>
+      <article class="resource-metric strength"><span class="metric-index">02 — MATERIAL</span><h3>烧结抗压强度</h3><strong id="txtStrength" class="metric-value">32.8 MPa</strong><div class="gauge-track"><div class="gauge-fill" id="barStrength"></div></div><p>屏蔽面密度 <strong id="txtShielding">12.5 g/cm²</strong></p></article>
+      <article class="resource-metric hazard"><span class="metric-index">03 — PERCHLORATE</span><h3>高氯酸盐含量</h3><strong id="txtToxicity" class="metric-value">0.68 wt% [中高风险]</strong><div class="gauge-track"><div class="gauge-fill" id="barToxicity"></div></div><p id="txtToxicitySub">未经脱毒处理，不可直接用于育苗</p></article>
+    </div>
+
+    <!-- 前哨基地生存决策与工程工艺指令 (FIELD ISRU & SURVIVAL DIRECTIVES) -->
+    <div class="directives-container">
+      <div class="directives-header">
+        <div>
+          <span class="section-number">ISRU DIRECTIVES</span>
+          <h3>前哨基地生存与工程执行指令</h3>
+        </div>
+        <div class="directives-tags" id="directivesTags"></div>
+      </div>
+
+      <div class="directives-grid">
+        <!-- 01 农业改土与温室准入 -->
+        <article class="directive-card agri">
+          <header class="card-head">
+            <span class="card-num">01 / AGRICULTURE</span>
+            <h4>温室准入与改土方案</h4>
+            <span id="badgeAgriStatus" class="gate-badge conditional">条件准入 · 需脱氯</span>
+          </header>
+          <div class="card-body">
+            <div class="metric-mini-row">
+              <span>实测高氯酸根: <strong id="valAgriClO4">0.68 wt%</strong></span>
+              <span>安全育苗阈值: <strong>&lt; 0.02 wt%</strong></span>
+            </div>
+            <div class="protocol-box">
+              <span class="box-title">标准改土三步工艺 (SOP)</span>
+              <ol class="step-list" id="listAgriSteps"></ol>
+            </div>
+            <div class="crop-suitability">
+              <span class="box-title">适种评估</span>
+              <p id="txtCropSuitability"></p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 02 热工提水与能量排程 -->
+        <article class="directive-card water">
+          <header class="card-head">
+            <span class="card-num">02 / EXTRACTION</span>
+            <h4>热工提水与能耗排程</h4>
+            <span id="badgeWaterStatus" class="tech-pill">中温回转窑</span>
+          </header>
+          <div class="card-body">
+            <div class="spec-grid">
+              <div class="spec-item"><span class="spec-k">推荐热工机组</span><strong id="valFurnaceType">低温回转焙烧釜</strong></div>
+              <div class="spec-item"><span class="spec-k">最佳热解温区</span><strong id="valBestTemp">220 ~ 420°C</strong></div>
+              <div class="spec-item"><span class="spec-k">营地电力排程</span><strong id="valPowerSchedule">11:00-14:00 光伏峰值</strong></div>
+              <div class="spec-item"><span class="spec-k">冷凝精制要求</span><strong id="valWaterRefine">二级 RO 反渗透脱盐</strong></div>
+            </div>
+            <div class="protocol-box">
+              <span class="box-title">热工能效与营地博弈</span>
+              <p id="txtWaterNote" class="card-note"></p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 03 基地建材与构件 BOM -->
+        <article class="directive-card construction">
+          <header class="card-head">
+            <span class="card-num">03 / FABRICATION</span>
+            <h4>基地建材与构件配方</h4>
+            <span id="badgeBOMRoute" class="tech-pill">微波地聚物</span>
+          </header>
+          <div class="card-body">
+            <div class="spec-grid">
+              <div class="spec-item"><span class="spec-k">推荐成型工艺</span><strong id="valBOMRoute">微波烧结地聚物砖</strong></div>
+              <div class="spec-item"><span class="spec-k">随船耗材添加比</span><strong id="valAdditives">硅酸钠 2.5 wt%</strong></div>
+              <div class="spec-item"><span class="spec-k">工序定额能耗</span><strong id="valBOMPower">4.0 kW 辐射 45min</strong></div>
+              <div class="spec-item"><span class="spec-k">构件目标性能</span><strong id="valBOMTarget">抗压 32.8 MPa · 12.5 g/cm²</strong></div>
+            </div>
+            <div class="protocol-box">
+              <span class="box-title">工程构件适用场景</span>
+              <p id="txtBOMNote" class="card-note"></p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 04 副产物与危险处置 -->
+        <article class="directive-card hazard">
+          <header class="card-head">
+            <span class="card-num">04 / BYPRODUCT & HAZARD</span>
+            <h4>副产物回收与危害防护</h4>
+            <span id="badgeHazardStatus" class="gate-badge warning">副产释氧 +3.4 kg/t</span>
+          </header>
+          <div class="card-body">
+            <div class="spec-grid">
+              <div class="spec-item"><span class="spec-k">分解副产氧量</span><strong id="valO2Credit">+3.4 kg O₂/t</strong></div>
+              <div class="spec-item"><span class="spec-k">放氧反应条件</span><strong id="valO2Temp">~460°C 分解释氧</strong></div>
+              <div class="spec-item"><span class="spec-k">挥发分烟气警示</span><strong id="valGasWarning">微量 CO₂，烟气中性</strong></div>
+              <div class="spec-item"><span class="spec-k">浓缩残渣处置</span><strong id="valWasteHandling">卤水蒸发结晶供储氧炉</strong></div>
+            </div>
+            <div class="protocol-box">
+              <span class="box-title">安全防护备忘</span>
+              <p id="txtHazardNote" class="card-note"></p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <aside class="verdict"><div><span class="section-number">ANALYSIS NOTE</span><h3>指挥官综合备忘</h3></div><p id="txtVerdictContent"></p></aside>
+    <p class="model-note">本页为独立化验演示。岩相、谱线与工程数值均为模拟设定，未接入基地物资或生产结算。</p>
+  </section>
+  <footer class="lab-footer"><div class="footer-message"><span class="indicator-dot"></span><span id="footerTickerText">样本待载入</span></div><button onclick="toggleSound()" id="btnAudio" class="tactile-btn"><span id="audioStatusDot" class="indicator-dot"></span><span id="audioStatusText">声效: 开启</span></button><span class="footer-brand">ARES / GEO-CHEM</span></footer>
+</main>
+<div id="toastBox" class="toast" role="status"><strong id="toastTitle">系统通告</strong><p id="toastDesc"></p></div>
+
+<script>
+const SAMPLES = {
+  JEZERO: {
+    id: 'SOL-892-JEZ',
+    name: '耶泽罗扇三角洲 · 富蒙脱石沉积泥岩',
+    rockClass: '中性古湖相水合硅酸盐泥岩',
+    coords: '18.384°N, 77.581°E (6.4cm 深钻)',
+    waterYield: 26.5,
+    waterEnergy: 28.4,
+    strength: 32.8,
+    shielding: '12.5 g/cm²',
+    toxicity: '0.68 wt% [中高风险]',
+    toxicVal: 0.68,
+    metalYield: 242,
+    verdict: '本批样芯富含层状绿脱石/蒙脱石水合粘土，具备显著常压水脱附能力；建议前哨基地建立低温回转焙烧釜，先行提取结晶水，残渣混配硅酸钠作为 3D 打印护墙砂浆。',
+    directives: {
+      tags: ['温室门禁: 需脱氯', '热工窗口: 正午光伏', '建材路线: 微波地聚物'],
+      agri: {
+        badgeText: '条件准入 · 需脱氯改土',
+        badgeClass: 'conditional',
+        clO4: '0.68 wt%',
+        steps: [
+          '<strong>① 逆流密闭淋洗:</strong> 每吨壤样耗水 85L（水循环回收率 92%），滤除可溶性高氯酸盐与多余硫酸盐',
+          '<strong>② 缺氧生物脱氯:</strong> 接种 <em>Dechloromonas agitata</em> 厌氧菌，在反应釜中将残余 ClO₄⁻ 还原为无害 Cl⁻ 并副产 O₂',
+          '<strong>③ 有机熟化配制:</strong> 掺混生活舱厌氧消化堆肥 30 wt% 及菌根真菌，熟化 14 火星日形成团粒保水结构'
+        ],
+        cropNote: '改土完成后团粒与保水性极佳，适种<strong>马铃薯</strong>、<strong>矮生小麦</strong>与<strong>生菜</strong>；未经淋洗禁止直接接触幼苗根系。'
+      },
+      waterExtraction: {
+        furnaceType: '中温回转焙烧釜',
+        bestTemp: '220 ~ 420°C (晶格羟基水)',
+        powerSchedule: '11:00-14:00 光伏峰值 (3.8kW)',
+        waterRefine: '二级 RO 反渗透膜脱盐',
+        note: '粘土吸附水在 150°C 释放较少，大量羟基水需在 300°C 以上解吸。单批脱水热耗 28.4 kWh/t，营地 48kWh 电池组无法支撑夜间连续烘焙，必须排程在正午光伏富余时段满功率运行。'
+      },
+      construction: {
+        route: '微波烧结地聚物耐火砖',
+        routeShort: '微波地聚物',
+        additives: '随船硅酸钠 (Na₂SiO₃) 2.5 wt%',
+        power: '4.0 kW 微波辐射 45 min/批',
+        target: '抗压 32.8 MPa · 面密度 12.5 g/cm²',
+        note: '蒙脱石在硅酸钠激发下形成致密硅铝酸盐网状胶结，单块砖抗压达 32.8 MPa。适合筑造前哨站首期充气帐篷的外围防微陨石与防辐射压石覆墙。'
+      },
+      hazard: {
+        o2Credit: '+3.4 kg O₂ / t 壤样',
+        o2Temp: '~460°C 分解释氧',
+        gasWarning: '微量 CO₂，烟气近中性',
+        wasteHandling: '洗脱高氯酸浓盐水蒸发结晶供储氧炉',
+        badgeClass: 'warning',
+        note: '高氯酸盐兼具毒物与氧源双重属性。洗脱出的高浓度卤水切勿直接排弃，可送入高温释氧副产反应器，每吨原壤可为生活舱回补 3.4 kg 呼吸氧。'
+      }
+    },
+    minerals: [
+      { name: '绿脱石/蒙脱石', pct: 28, color: '#26c6da', formula: 'Na0.3Fe2(Si,Al)4O10(OH)2' },
+      { name: '钙钠斜长石', pct: 24, color: '#38bdf8', formula: '(Ca,Na)AlSi3O8' },
+      { name: '普通辉石 (Augite)', pct: 18, color: '#f59e0b', formula: '(Ca,Mg,Fe)2Si2O6' },
+      { name: '赤铁矿 / 磁铁矿', pct: 12, color: '#ef4444', formula: 'Fe2O3 / Fe3O4' },
+      { name: '非晶质冲击玻璃', pct: 18, color: '#a855f7', formula: 'Amorphous Si-Fe' }
+    ],
+    oxides: [
+      { name: 'SiO₂ (二氧化硅)', wt: 45.2 },
+      { name: 'FeOt (全铁氧化物)', wt: 19.8 },
+      { name: 'Al₂O₃ (氧化铝)', wt: 9.4 },
+      { name: 'MgO (氧化镁)', wt: 7.6 },
+      { name: 'CaO (氧化钙)', wt: 6.2 },
+      { name: 'SO₃ (三氧化硫)', wt: 5.4 }
+    ],
+    xrd: [
+      { theta: 6.1, intensity: 88, phase: '蒙脱石 (Smectite)', hkl: '(001) d=14.5Å', genesis: '含层间膨胀水合相' },
+      { theta: 19.8, intensity: 64, phase: '蒙脱石 (Smectite)', hkl: '(020) d=4.48Å', genesis: '富铁八面体层' },
+      { theta: 27.9, intensity: 94, phase: '斜长石 (Plagioclase)', hkl: '(002) d=3.19Å', genesis: '钙钠长石优势解理' },
+      { theta: 29.8, intensity: 75, phase: '普通辉石 (Augite)', hkl: '(-221) d=2.99Å', genesis: '原生火成火山碎屑' },
+      { theta: 33.2, intensity: 82, phase: '赤铁矿 (Hematite)', hkl: '(104) d=2.70Å', genesis: '水岩氧化沉淀红相' },
+      { theta: 35.6, intensity: 68, phase: '磁铁矿 (Magnetite)', hkl: '(311) d=2.53Å', genesis: '微细磁性微晶' }
+    ],
+    ega: [
+      { tempC: 180, gas: 'H₂O 结合水', yield: 1.2, color: '#26c6da', mass: 18 },
+      { tempC: 320, gas: 'O₂ 高氯酸盐分解', yield: 0.65, color: '#10b981', mass: 32 },
+      { tempC: 450, gas: 'H₂O 粘土羟基水', yield: 1.45, color: '#38bdf8', mass: 18 },
+      { tempC: 620, gas: 'CO₂ 碳酸盐脱碳', yield: 0.88, color: '#f59e0b', mass: 44 },
+      { tempC: 780, gas: 'SO₂ 硫酸盐分解', yield: 0.52, color: '#f43f5e', mass: 64 }
+    ],
+    raman: [
+      { shift: 225, name: '赤铁矿 Fe-O A1g', int: 78 },
+      { shift: 293, name: '赤铁矿 Eg 振动峰', int: 92 },
+      { shift: 660, name: '磁铁矿 A1g 对称伸缩', int: 52 },
+      { shift: 1350, name: '无定形有机碳 D 峰', int: 58 },
+      { shift: 1590, name: '无定形有机碳 G 峰', int: 64 }
+    ],
+    thinColors: {
+      clay: '#8c4826',
+      plag: '#6c8296',
+      aug: '#524b32',
+      oxide: '#150d09',
+      base: '#2a1d17'
+    }
+  },
+
+  GALE: {
+    id: 'SOL-840-GAL',
+    name: '盖尔夏普山 · 酸性富黄钾铁矾风成沙',
+    rockClass: '干涸期强酸性硫酸盐蒸发风成岩',
+    coords: '4.589°S, 137.441°E (3.2cm 次表层)',
+    waterYield: 18.5,
+    waterEnergy: 34.2,
+    strength: 24.5,
+    shielding: '10.8 g/cm²',
+    toxicity: '0.84 wt% [极高危险]',
+    toxicVal: 0.84,
+    metalYield: 218,
+    verdict: '硫酸镁与黄钾铁矾偏高，高温烧结易释放腐蚀性 SO₂ 烟气；不适宜直接烧砖，但可作为火星原位电解提取硫酸与镁质肥料的重要原料。',
+    directives: {
+      tags: ['温室门禁: 严禁直种', '建材路线: 免水硫磺混凝土 (推荐)', '安全预警: SO₂酸性腐蚀'],
+      agri: {
+        badgeText: '严禁直种 · 强酸高毒',
+        badgeClass: 'forbidden',
+        clO4: '0.84 wt%',
+        steps: [
+          '<strong>① 强力碱液中和:</strong> 样砂含 16% 黄钾铁矾，遇水水解呈强酸性 (pH 4.2)，需先注入消石灰或氢氧化钠调节至 pH 7.2',
+          '<strong>② 多级逆流洗脱:</strong> 高氯酸盐 (0.84 wt%) 严重超标，洗脱耗水需达 140L/t，生命初期水源极紧缺时不划算',
+          '<strong>③ 深度重金属钝化:</strong> 铁硫酸盐胶体需经 30 天生物炭吸附稳定，严禁作为早期快速农业基质'
+        ],
+        cropNote: '强酸性与高盐度对几乎所有高等农作物有毁灭性毒害。<strong>严禁用于温室耕作</strong>，仅建议中后期用于耐酸微藻或选矿浸出。'
+      },
+      waterExtraction: {
+        furnaceType: '分级两段式干馏炉',
+        bestTemp: '140 ~ 180°C (硫酸镁脱水)',
+        powerSchedule: '严控炉温，日落前清炉',
+        waterRefine: '除酸冷凝洗涤塔',
+        note: '水镁矾结晶水在 150°C 即可脱出，但炉温<strong>绝对不可超过 550°C</strong>，否则黄钾铁矾与硫酸盐将剧烈分解产生剧毒且腐蚀性的 SO₂ 烟气，会损毁金属热交换器。'
+      },
+      construction: {
+        route: '免水硫磺混凝土 (SOP 首选)',
+        routeShort: '免水硫磺砼',
+        additives: '0 随船耗材 (利用风成硫相)',
+        power: '135°C 熔融流延 (低能耗)',
+        target: '抗压 42.5 MPa · 面密度 10.8 g/cm²',
+        note: '★ 基地水资源极端紧张时期的<strong>救命建材路线</strong>！利用样砂中 14.8% SO₃ 富硫特性，在 135°C 熔融混合，<strong>完全不消耗宝贵的水资源</strong>，快速固化抗压强度达 42.5 MPa，用于停机坪与设备基座。'
+      },
+      hazard: {
+        o2Credit: '+4.2 kg O₂ / t 壤样',
+        o2Temp: '300°C 催化分解释放',
+        gasWarning: '⚠️ 极高 SO₂ 腐蚀烟气风险',
+        wasteHandling: '排气需经氧化钙吸附脱硫',
+        badgeClass: 'forbidden',
+        note: '高温热解过程释放大量二氧化硫酸性腐蚀气体。必须在排气管路串联碱性吸收塔，防止基线阀门密封件在 48 小时内被亚硫酸腐蚀穿孔。'
+      }
+    },
+    minerals: [
+      { name: '水镁矾 / 硫酸镁', pct: 32, color: '#f59e0b', formula: 'MgSO4·H2O' },
+      { name: '黄钾铁矾 (Jarosite)', pct: 16, color: '#d97706', formula: 'KFe3(SO4)2(OH)6' },
+      { name: '斜长石残屑', pct: 20, color: '#38bdf8', formula: '(Ca,Na)AlSi3O8' },
+      { name: '单斜辉石', pct: 15, color: '#64748b', formula: '(Mg,Fe)SiO3' },
+      { name: '铁硫酸盐凝胶基质', pct: 17, color: '#a855f7', formula: 'Fe-sulfate gel' }
+    ],
+    oxides: [
+      { name: 'SiO₂ (二氧化硅)', wt: 41.5 },
+      { name: 'SO₃ (三氧化硫)', wt: 14.8 },
+      { name: 'FeOt (全铁氧化物)', wt: 18.2 },
+      { name: 'MgO (氧化镁)', wt: 8.9 },
+      { name: 'CaO (氧化钙)', wt: 7.8 },
+      { name: 'Al₂O₃ (氧化铝)', wt: 6.2 }
+    ],
+    xrd: [
+      { theta: 15.2, intensity: 78, phase: '水镁矾 (Kieserite)', hkl: '(110) d=5.82Å', genesis: '脱水蒸发沉淀相' },
+      { theta: 17.8, intensity: 86, phase: '黄钾铁矾 (Jarosite)', hkl: '(012) d=4.98Å', genesis: '强酸性氧化浅水沉淀' },
+      { theta: 28.1, intensity: 88, phase: '斜长石 (Plagioclase)', hkl: '(002) d=3.17Å', genesis: '抗风化火山残余' },
+      { theta: 30.2, intensity: 65, phase: '辉石 (Pyroxene)', hkl: '(220) d=2.95Å', genesis: '基性碎屑' },
+      { theta: 31.4, intensity: 72, phase: '石膏 (Gypsum)', hkl: '(020) d=7.63Å', genesis: '二水硫酸钙次生析出' }
+    ],
+    ega: [
+      { tempC: 150, gas: 'H₂O 结晶水脱附', yield: 1.1, color: '#26c6da', mass: 18 },
+      { tempC: 300, gas: 'O₂ 高氯酸盐释氧', yield: 0.82, color: '#10b981', mass: 32 },
+      { tempC: 580, gas: 'SO₂ 黄钾铁矾热解', yield: 1.65, color: '#f43f5e', mass: 64 },
+      { tempC: 750, gas: 'SO₂ 硫酸镁高温分解', yield: 2.10, color: '#fb923c', mass: 64 }
+    ],
+    raman: [
+      { shift: 988, name: '硫酸镁 ν1(SO₄²⁻)', int: 96 },
+      { shift: 1012, name: '石膏 SO₄ 对称伸缩', int: 78 },
+      { shift: 1105, name: '黄钾铁矾 ν3(SO₄²⁻)', int: 84 },
+      { shift: 435, name: 'Fe-O 晶格共振', int: 54 }
+    ],
+    thinColors: {
+      clay: '#b08432',
+      plag: '#6c849c',
+      aug: '#5c5440',
+      oxide: '#22180c',
+      base: '#3a2b15'
+    }
+  },
+
+  OLYMPUS: {
+    id: 'SOL-812-OLY',
+    name: '塔尔西斯熔岩原 · 原始高镁透辉橄榄玄武岩',
+    rockClass: '原生幔源超基性火山喷发玄武岩',
+    coords: '18.650°N, 226.200°E (1.8cm 熔岩)',
+    waterYield: 4.5,
+    waterEnergy: 45.0,
+    strength: 58.6,
+    shielding: '15.2 g/cm²',
+    toxicity: '0.22 wt% [安全可控]',
+    toxicVal: 0.22,
+    metalYield: 312,
+    verdict: '极佳的重工业与建筑构件基底！橄榄石与辉石致密硬结，抗压强度达 58.6 MPa，高温熔铸直接可制成耐磨管道与高强度承压地基预制件，高氯酸盐毒性极低。',
+    directives: {
+      tags: ['温室门禁: 快速洗脱', '提水建议: 严禁开炉 (负收益)', '重工首选: 熔铸玄武岩管道'],
+      agri: {
+        badgeText: '安全级 · 低盐快速洗脱',
+        badgeClass: 'safe',
+        clO4: '0.22 wt%',
+        steps: [
+          '<strong>① 单级快速喷淋:</strong> 原生熔岩未经历次生卤素富集，高氯酸盐仅 0.22 wt%，低水耗 (35L/t) 单次淋洗即达标',
+          '<strong>② 机械粉磨造孔:</strong> 玄武岩粉碎后质地粗硬，需经球磨机磨细至 80~120 目以提供植物根系攀附比表面积',
+          '<strong>③ 磷钾缓释激活:</strong> 样岩富含橄榄石与磷灰石，接种解磷解钾菌后可作为持久天然无机矿物肥源'
+        ],
+        cropNote: '洗脱工序极简、耗水最少。经粉磨和堆肥熟化后，是培育<strong>大豆</strong>、<strong>小麦</strong>等中大型作物的优良无机基质。'
+      },
+      waterExtraction: {
+        furnaceType: '静态高真空解吸炉',
+        bestTemp: '不建议用于提水',
+        powerSchedule: '能耗倒挂 · 建议停机',
+        waterRefine: '普通微孔滤膜过滤',
+        note: '原生未蚀变玄武岩全含水率仅 0.45% (4.5 kg/t)，提水热耗高达 45.0 kWh/t。在营地能源紧平衡阶段，在此类岩石上提水属于严重负收益操作，<strong>严禁调度主电力提水</strong>。'
+      },
+      construction: {
+        route: '高温熔铸高强度玄武岩构件',
+        routeShort: '熔铸玄武岩',
+        additives: '0 随船化学添加剂',
+        power: '1250°C 聚光太阳炉 / 电弧熔铸',
+        target: '抗压 58.6 MPa · 面密度 15.2 g/cm²',
+        note: '重工业结构材料的黄金基底！熔铸玄武岩具有莫氏硬度 8.0、抗压 58.6 MPa 与极高的耐磨耐腐蚀性，是制造耐磨矿浆管道、钻探导套与重型地基沉箱的核心材料。'
+      },
+      hazard: {
+        o2Credit: '+1.1 kg O₂ / t 壤样',
+        o2Temp: '微量分解释氧',
+        gasWarning: '零酸性腐蚀烟气',
+        wasteHandling: '尾渣为优质硅酸盐陶瓷骨料',
+        badgeClass: 'safe',
+        note: '重金属与挥发毒性物质含量极低，属于全场化学环境最洁净的安全样本；熔融冷却过程无剧毒挥发泄漏风险。'
+      }
+    },
+    minerals: [
+      { name: '镁橄榄石 (Fo75)', pct: 36, color: '#10b981', formula: '(Mg,Fe)2SiO4' },
+      { name: '透辉石 / 顽火辉石', pct: 34, color: '#f59e0b', formula: 'CaMgSi2O6' },
+      { name: '拉长石 (Labradorite)', pct: 18, color: '#38bdf8', formula: '(Ca,Na)AlSi3O8' },
+      { name: '钛磁铁矿', pct: 8, color: '#ef4444', formula: 'Fe2.5Ti0.5O4' },
+      { name: '磷灰石 (Apatite)', pct: 4, color: '#a855f7', formula: 'Ca5(PO4)3F' }
+    ],
+    oxides: [
+      { name: 'SiO₂ (二氧化硅)', wt: 48.6 },
+      { name: 'FeOt (全铁氧化物)', wt: 21.4 },
+      { name: 'MgO (氧化镁)', wt: 11.2 },
+      { name: 'CaO (氧化钙)', wt: 8.8 },
+      { name: 'Al₂O₃ (氧化铝)', wt: 6.8 },
+      { name: 'TiO₂ (二氧化钛)', wt: 1.8 }
+    ],
+    xrd: [
+      { theta: 22.8, intensity: 68, phase: '镁橄榄石 (Olivine)', hkl: '(021) d=3.89Å', genesis: '原生幔源超基性相' },
+      { theta: 32.2, intensity: 98, phase: '镁橄榄石 (Olivine)', hkl: '(130) d=2.77Å', genesis: '富镁特征衍射强峰' },
+      { theta: 29.8, intensity: 84, phase: '单斜辉石 (Diopside)', hkl: '(-221) d=2.99Å', genesis: '高温结晶固溶体' },
+      { theta: 35.8, intensity: 76, phase: '钛磁铁矿', hkl: '(311) d=2.53Å', genesis: '富钛磁铁晶体' }
+    ],
+    ega: [
+      { tempC: 120, gas: '吸附微量 H₂O', yield: 0.35, color: '#26c6da', mass: 18 },
+      { tempC: 280, gas: '微量 O₂ (痕量盐)', yield: 0.20, color: '#10b981', mass: 32 },
+      { tempC: 720, gas: 'CO₂ 原生包裹体', yield: 0.45, color: '#f59e0b', mass: 44 }
+    ],
+    raman: [
+      { shift: 824, name: '橄榄石 SiO₄ ν1-ν3 对称 A', int: 98 },
+      { shift: 855, name: '橄榄石 SiO₄ ν1-ν3 对称 B', int: 92 },
+      { shift: 665, name: '辉石 Si-O-Si 弯曲振动', int: 74 },
+      { shift: 1010, name: '辉石 Si-O 对称伸缩', int: 80 }
+    ],
+    thinColors: {
+      clay: '#2c3d2f',
+      plag: '#5b7182',
+      aug: '#485e33',
+      oxide: '#0e110f',
+      base: '#131915'
+    }
+  },
+
+  POLAR: {
+    id: 'SOL-795-POL',
+    name: '北极极冠多年冻土 · 水冰-高氯酸盐共晶壤',
+    rockClass: '极地冰冻沉积复合体',
+    coords: '68.220°N, 125.400°E (4.5cm 冻土)',
+    waterYield: 88.5,
+    waterEnergy: 16.8,
+    strength: 18.2,
+    shielding: '16.8 g/cm²',
+    toxicity: '1.42 wt% [极端危险]',
+    toxicVal: 1.42,
+    metalYield: 175,
+    verdict: '基地生命之源！含水率近 9%，轻度加热（60~120°C）即升华回收；但伴随 1.42 wt% 的剧毒高氯酸盐，饮用与水培必须配置纳米催化还原去毒模块！',
+    directives: {
+      tags: ['核心水矿: 产水 88.5kg/t', '氧气金矿: +7.1kg O₂/t', '安全警告: 严防高氯酸盐泄漏'],
+      agri: {
+        badgeText: '极端剧毒 · 严禁接触',
+        badgeClass: 'forbidden',
+        clO4: '1.42 wt%',
+        steps: [
+          '<strong>① 物理相态分离:</strong> 严禁直接作为土壤使用！必须先在密闭升华舱内融冰提取液态水，分离出泥砂残渣',
+          '<strong>② 泥渣强毒隔离:</strong> 泥渣中高氯酸盐结晶含量高达 1.42 wt%，具有高度甲状腺毒性与强氧化性，必须送入危废密封筒',
+          '<strong>③ 极限净化脱氯:</strong> 融出的毛水含有高达 2.1% 溶解盐，必须经过纳米催化电解脱氯单元降解至 5 ppb 以下'
+        ],
+        cropNote: '天然状态下致死毒性极高，<strong>绝对禁止投入温室</strong>或接触宇航员皮肤；仅可作为水和氧气提取源。'
+      },
+      waterExtraction: {
+        furnaceType: '红外低温真空升华罩',
+        bestTemp: '60 ~ 110°C (冰晶升华相变)',
+        powerSchedule: '全天候低能耗运行',
+        waterRefine: '四级超滤 + 催化脱氯 + 银离子',
+        note: '★ 基地<strong>水资源战略核心矿区</strong>！产水率高达 88.5 kg/t，且 80°C 即可迅速升华脱水，单吨热耗仅 16.8 kWh/t。营地 4kW 光伏或蓄电池均可轻松驱动，全天候均可稳态生产。'
+      },
+      construction: {
+        route: '冰土复合防辐射冻结垒 (Pykrete)',
+        routeShort: '冰土冻结垒',
+        additives: '掺混 12 wt% 纤维防裂网',
+        power: '利用极区自然低温维持',
+        target: '抗压 18.2 MPa · 面密度 16.8 g/cm²',
+        note: '在极地负 80°C 环境下，水冰与风化层细粉形成坚固的复合冻结体，富氢特性提供全场最高的 16.8 g/cm² 宇宙射线防护当量。但只能布置在外部冷区，严禁进入常温生活舱。'
+      },
+      hazard: {
+        o2Credit: '+7.1 kg O₂ / t 壤样',
+        o2Temp: '285°C 催化分解释氧',
+        gasWarning: '高压微爆鸣放氧',
+        wasteHandling: '剧毒浓缩母液严格密封深埋',
+        badgeClass: 'forbidden',
+        note: '高氯酸盐浓度全场最高，既是剧毒之源，又是超级富氧矿！配套的催化释氧装置可产出惊人的 +7.1 kg O₂/t，单批次处理即可为整个前哨站提供数十人日的呼吸氧配额。'
+      }
+    },
+    minerals: [
+      { name: '六方水冰 (Ice Ih)', pct: 28, color: '#38bdf8', formula: 'H2O crystalline' },
+      { name: '水合高氯酸盐', pct: 18, color: '#f43f5e', formula: 'Mg(ClO4)2·6H2O' },
+      { name: '斜长石微粉', pct: 20, color: '#26c6da', formula: '(Ca,Na)AlSi3O8' },
+      { name: '方解石微晶 (Calcite)', pct: 18, color: '#10b981', formula: 'CaCO3' },
+      { name: '非晶铁胶体', pct: 16, color: '#f59e0b', formula: 'Fe2O3 amorphous' }
+    ],
+    oxides: [
+      { name: 'H₂O (水冰基质挥发分)', wt: 18.5 },
+      { name: 'SiO₂ (二氧化硅)', wt: 36.4 },
+      { name: 'FeOt (全铁氧化物)', wt: 14.5 },
+      { name: 'CaO (氧化钙)', wt: 8.2 },
+      { name: 'MgO (氧化镁)', wt: 7.1 },
+      { name: 'ClO₄⁻ (高氯酸根)', wt: 1.42 }
+    ],
+    xrd: [
+      { theta: 22.7, intensity: 98, phase: '六方水冰 (Ice Ih)', hkl: '(100) d=3.91Å', genesis: '低温冻土结晶冰强衍射' },
+      { theta: 24.2, intensity: 85, phase: '六方水冰 (Ice Ih)', hkl: '(002) d=3.67Å', genesis: '冰晶c轴晶面' },
+      { theta: 25.8, intensity: 92, phase: '六方水冰 (Ice Ih)', hkl: '(101) d=3.45Å', genesis: '特征三强衍射主线' },
+      { theta: 29.4, intensity: 74, phase: '方解石 (Calcite)', hkl: '(104) d=3.03Å', genesis: '冷泉自生碳酸盐' },
+      { theta: 31.8, intensity: 68, phase: '高氯酸盐结晶', hkl: '(211) d=2.81Å', genesis: '极低温低共熔物相' }
+    ],
+    ega: [
+      { tempC: 60, gas: 'H₂O 冰晶快速升华', yield: 5.8, color: '#26c6da', mass: 18 },
+      { tempC: 285, gas: 'O₂ 高氯酸盐分解', yield: 1.45, color: '#10b981', mass: 32 },
+      { tempC: 680, gas: 'CO₂ 方解石脱碳', yield: 1.20, color: '#f59e0b', mass: 44 }
+    ],
+    raman: [
+      { shift: 935, name: '高氯酸根 Cl-O 伸缩', int: 98 },
+      { shift: 1085, name: '方解石 ν1(CO₃²⁻)', int: 94 },
+      { shift: 3150, name: '六方水冰 O-H 缔合带', int: 88 }
+    ],
+    thinColors: {
+      clay: '#3e5870',
+      plag: '#7194b0',
+      aug: '#486b84',
+      oxide: '#0e161f',
+      base: '#142230'
+    }
+  }
+};
+
+let curSampleKey = 'JEZERO';
+let sample = SAMPLES[curSampleKey];
+let curDiagMode = 'XRD'; // 'XRD', 'SAM', 'RAMAN'
+let curIllum = 'VIS'; // 'VIS', 'XPL', 'UV'
+let show2DRing = false;
+let showRietveld = true;
+let isScanning = false;
+let scanProgress = 1.0;
+let laserAim = { x: 0.5, y: 0.5 };
+let laserFlashTime = 0;
+
+// Web Audio
+class SynthEngine {
+  constructor() { this.ctx = null; this.enabled = true; }
+  init() {
+    if (!this.ctx && this.enabled) {
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+    }
+  }
+  tick() {
+    if (!this.ctx || !this.enabled) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.035);
+    g.gain.setValueAtTime(0.025, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.035);
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.start(); osc.stop(this.ctx.currentTime + 0.035);
+  }
+  laser() {
+    if (!this.ctx || !this.enabled) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(2600, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(90, this.ctx.currentTime + 0.08);
+    g.gain.setValueAtTime(0.04, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.08);
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+  }
+  sweep() {
+    if (!this.ctx || !this.enabled) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(1200, this.ctx.currentTime + 0.25);
+    g.gain.setValueAtTime(0.02, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.start(); osc.stop(this.ctx.currentTime + 0.25);
+  }
+}
+const audio = new SynthEngine();
+
+function toggleSound() {
+  audio.init();
+  audio.enabled = !audio.enabled;
+  document.getElementById('audioStatusText').innerText = audio.enabled ? "声效: 开启" : "声效: 静音";
+  document.getElementById('audioStatusDot').style.background = audio.enabled ? "var(--emerald)" : "var(--rose)";
+}
+
+function showToast(title, desc) {
+  const t = document.getElementById('toastBox');
+  document.getElementById('toastTitle').innerText = title;
+  document.getElementById('toastDesc').innerText = desc;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 2400);
+}
+
+function switchMarsSample(key) {
+  audio.init();
+  audio.tick();
+  curSampleKey = key;
+  sample = SAMPLES[key];
+  document.getElementById('sampleId').innerText = sample.id;
+  document.getElementById('sampleOrdinal').innerHTML = `${String(Object.keys(SAMPLES).indexOf(key) + 1).padStart(2, '0')} <small>/ 04</small>`;
+  document.getElementById('targetMineralText').innerText = '靶心微区: 探测就绪';
+  document.getElementById('spectrumTooltip').style.display = 'none';
+  document.getElementById('spectrumCursorVal').innerText = '--';
+
+  document.getElementById('txtRockClass').innerText = sample.rockClass;
+  document.getElementById('txtSampleCoords').innerText = sample.coords;
+
+  document.getElementById('txtWaterYield').innerText = `${sample.waterYield.toFixed(1)} kg / t`;
+  document.getElementById('txtWaterEnergy').innerText = `${sample.waterEnergy.toFixed(1)} kWh/t`;
+  document.getElementById('barWater').style.width = `${Math.min(100, (sample.waterYield / 90) * 100)}%`;
+
+  document.getElementById('txtStrength').innerText = `${sample.strength.toFixed(1)} MPa`;
+  document.getElementById('txtShielding').innerText = sample.shielding;
+  document.getElementById('barStrength').style.width = `${Math.min(100, (sample.strength / 65) * 100)}%`;
+
+  document.getElementById('txtToxicity').innerText = sample.toxicity;
+  document.getElementById('barToxicity').style.width = `${Math.min(100, (sample.toxicVal / 1.5) * 100)}%`;
+
+  const toxSub = document.getElementById('txtToxicitySub');
+  if (toxSub && sample.directives?.agri) {
+    if (sample.directives.agri.badgeClass === 'forbidden') {
+      toxSub.innerText = sample.directives.agri.badgeText.includes('强酸') ? '黄钾铁矾水解强酸，严禁用于耕作' : '极端致死毒性，严禁直接接触宇航员与温室';
+    } else if (sample.directives.agri.badgeClass === 'safe') {
+      toxSub.innerText = '全场最低毒性，单级快速喷淋即达安全育苗线';
+    } else {
+      toxSub.innerText = '未经密闭淋洗与厌氧脱氯，不可直接育苗';
+    }
+  }
+
+  document.getElementById('txtVerdictContent').innerText = sample.verdict;
+  document.getElementById('footerTickerText').innerText = `[样芯锁定] ${sample.id} (${sample.name}) 已成功装入分析舱 · 晶格衍射峰位已收敛。`;
+
+  renderMinerals();
+  renderOxides();
+  renderDirectives();
+  triggerScanSweep();
+  showToast("转盘换样就绪", `已载入样芯 ${sample.name}`);
+}
+
+const mineralPalette = ['#a5b7a0', '#6e9187', '#c5a278', '#ab7563', '#7a7f8d'];
+function renderMinerals() {
+  document.getElementById('mineralStackedStrip').innerHTML = sample.minerals.map((m, i) => `
+    <div style="width:${m.pct}%;background:${mineralPalette[i % mineralPalette.length]}" title="${m.name}: ${m.pct}%"></div>
+  `).join('');
+  document.getElementById('mineralPillGrid').innerHTML = sample.minerals.map((m, i) => `
+    <div class="mineral-item"><span class="mineral-swatch" style="background:${mineralPalette[i % mineralPalette.length]}"></span><span class="mineral-name">${m.name}</span><strong>${m.pct}%</strong></div>
+  `).join('');
+}
+
+function renderOxides() {
+  document.getElementById('oxideBreakdownStrip').innerHTML = sample.oxides.map(ox => `
+    <div class="oxide-row"><span>${ox.name}</span><div class="oxide-track"><div style="width:${Math.min(100, ox.wt * 1.8)}%"></div></div><strong>${ox.wt.toFixed(1)}%</strong></div>
+  `).join('');
+}
+
+function renderDirectives() {
+  const d = sample.directives;
+  if (!d) return;
+
+  // Header tags
+  const tagsBox = document.getElementById('directivesTags');
+  if (tagsBox && d.tags) {
+    tagsBox.innerHTML = d.tags.map(t => `<span class="tech-tag">${t}</span>`).join('');
+  }
+
+  // 01 Agri
+  const agri = d.agri;
+  const badgeAgri = document.getElementById('badgeAgriStatus');
+  badgeAgri.className = `gate-badge ${agri.badgeClass}`;
+  badgeAgri.innerText = agri.badgeText;
+  document.getElementById('valAgriClO4').innerText = agri.clO4;
+  document.getElementById('listAgriSteps').innerHTML = agri.steps.map(s => `<li>${s}</li>`).join('');
+  document.getElementById('txtCropSuitability').innerHTML = agri.cropNote;
+
+  // 02 Water
+  const water = d.waterExtraction;
+  document.getElementById('badgeWaterStatus').innerText = water.furnaceType;
+  document.getElementById('valFurnaceType').innerText = water.furnaceType;
+  document.getElementById('valBestTemp').innerText = water.bestTemp;
+  document.getElementById('valPowerSchedule').innerText = water.powerSchedule;
+  document.getElementById('valWaterRefine').innerText = water.waterRefine;
+  document.getElementById('txtWaterNote').innerText = water.note;
+
+  // 03 Construction
+  const bom = d.construction;
+  document.getElementById('badgeBOMRoute').innerText = bom.routeShort || bom.route;
+  document.getElementById('valBOMRoute').innerText = bom.route;
+  document.getElementById('valAdditives').innerText = bom.additives;
+  document.getElementById('valBOMPower').innerText = bom.power;
+  document.getElementById('valBOMTarget').innerText = bom.target;
+  document.getElementById('txtBOMNote').innerText = bom.note;
+
+  // 04 Hazard
+  const hz = d.hazard;
+  const badgeHz = document.getElementById('badgeHazardStatus');
+  badgeHz.className = `gate-badge ${hz.badgeClass || 'warning'}`;
+  badgeHz.innerText = `副产释氧 ${hz.o2Credit}`;
+  document.getElementById('valO2Credit').innerText = hz.o2Credit;
+  document.getElementById('valO2Temp').innerText = hz.o2Temp;
+  document.getElementById('valGasWarning').innerText = hz.gasWarning;
+  document.getElementById('valWasteHandling').innerText = hz.wasteHandling;
+  document.getElementById('txtHazardNote').innerText = hz.note;
+}
+
+function setIllum(mode) {
+  audio.tick();
+  curIllum = mode;
+  ['VIS', 'XPL', 'UV'].forEach(m => {
+    const btn = document.getElementById(`btnIllum_${m}`);
+    btn.classList.toggle('active', m === mode);
+    btn.setAttribute('aria-pressed', String(m === mode));
+  });
+  const label = document.getElementById('illumModeLabel');
+  if (mode === 'VIS') label.innerText = "明场自然白光反射 (VIS)";
+  else if (mode === 'XPL') label.innerText = "正交偏光干涉双折射色 (XPL Nicol)";
+  else label.innerText = "365nm 深紫外诱发荧光 (UV)";
+}
+
+function setDiagMode(mode) {
+  audio.tick();
+  curDiagMode = mode;
+  document.getElementById('spectrumTooltip').style.display = 'none';
+  document.getElementById('spectrumCursorVal').innerText = '--';
+  ['XRD', 'SAM', 'RAMAN'].forEach(m => {
+    const btn = document.getElementById(`tab_${m}`);
+    btn.classList.toggle('active-amber', m === mode);
+    btn.setAttribute('aria-pressed', String(m === mode));
+  });
+
+  const axis = document.getElementById('spectrumAxisTitle');
+  const sub = document.getElementById('instrumentSubParamStrip');
+  const btn2D = document.getElementById('btn2DToggle');
+  const btnRietveld = document.getElementById('btnRietveldToggle');
+
+  if (mode === 'XRD') {
+    axis.innerText = "衍射角 (2θ Bragg, Cu-Kα λ=1.5406Å):";
+    sub.innerHTML = `
+      <span>X射线发生源: <strong style="color: #cbd5e1;">铜靶 30 kV / 10 mA</strong></span>
+      <span>测角精度: <strong style="color: var(--cyan-bright);">Δ2θ &lt; 0.015°</strong></span>
+      <span>积分信噪比: <strong style="color: var(--emerald);">46.2 dB</strong></span>
+    `;
+    btn2D.style.display = 'inline-flex';
+    btnRietveld.style.display = 'inline-flex';
+  } else if (mode === 'SAM') {
+    axis.innerText = "热解温区 (Pyrolysis EGA 50~850°C):";
+    sub.innerHTML = `
+      <span>热解升温率: <strong style="color: var(--amber-bright);">35 °C/min</strong></span>
+      <span>四极杆质量范围: <strong style="color: #cbd5e1;">m/z 2~535</strong></span>
+      <span>载气: <strong style="color: var(--cyan-bright);">高纯氦 (He)</strong></span>
+    `;
+    btn2D.style.display = 'none';
+    btnRietveld.style.display = 'none';
+  } else {
+    axis.innerText = "显微拉曼位移 (Raman Shift 150~3500 cm⁻¹):";
+    sub.innerHTML = `
+      <span>脉冲激光波长: <strong style="color: var(--purple);">248.6 nm (深紫外)</strong></span>
+      <span>微光斑直径: <strong style="color: #cbd5e1;">10 μm 共焦锁定</strong></span>
+      <span>LIBS 击穿等离子体: <strong style="color: var(--cyan-bright);">就绪</strong></span>
+    `;
+    btn2D.style.display = 'none';
+    btnRietveld.style.display = 'none';
+  }
+
+  triggerScanSweep();
+}
+
+function toggle2DRingOverlay() {
+  audio.tick();
+  show2DRing = !show2DRing;
+  const btn = document.getElementById('btn2DToggle');
+  btn.classList.toggle('active-cyan', show2DRing);
+  btn.setAttribute('aria-pressed', String(show2DRing));
+}
+
+function toggleRietveldFit() {
+  audio.tick();
+  showRietveld = !showRietveld;
+  const btn = document.getElementById('btnRietveldToggle');
+  btn.classList.toggle('active-cyan', showRietveld);
+  btn.setAttribute('aria-pressed', String(showRietveld));
+}
+
+function fireLaserProbe() {
+  audio.init();
+  audio.laser();
+  laserFlashTime = performance.now();
+  triggerScanSweep();
+  showToast("激光微区击穿", "SHERLOC 脉冲激光激发成功，微区等离子体谱线捕获完成");
+}
+
+function triggerScanSweep() {
+  audio.init();
+  audio.sweep();
+  isScanning = true;
+  scanProgress = 0.0;
+
+  const dot = document.getElementById('scanStatusDot');
+  const lbl = document.getElementById('scanStatusLabel');
+  dot.style.background = "var(--amber-bright)";
+  lbl.innerText = "谱线积分激发扫描中...";
+}
+
+async function exportVerdictReport() {
+  audio.tick();
+  const d = sample.directives;
+  const summary = `【ARES GEO-CHEM // 火星风化层地质化学与生存工程决断通报】
+性质: 前哨基地现场化验报告 · 适用于生命维持与原位生产执行决策
+样芯编号: ${sample.id}
+分类归属: ${sample.rockClass}
+采样坐标: ${sample.coords}
+----------------------------------------
+【物相与主要化学组分】
+主要晶相: ${sample.minerals.map(m => `${m.name} ${m.pct}%`).join(', ')}
+结晶水产率: ${sample.waterYield} kg/t (脱水热耗: ${sample.waterEnergy} kWh/t)
+烧结抗压: ${sample.strength} MPa (防辐射当量: ${sample.shielding})
+高氯酸盐: ${sample.toxicity}
+
+【生存与原位工程决策指令 (ISRU DIRECTIVES)】
+1. 农业改土与温室门禁: [${d.agri.badgeText}]
+   - 实测高氯酸盐: ${d.agri.clO4} (安全育苗阈值: < 0.02 wt%)
+   - 改土工艺:
+     ${d.agri.steps.map(s => s.replace(/<[^>]+>/g, '')).join('\n     ')}
+   - 适种评估: ${d.agri.cropNote.replace(/<[^>]+>/g, '')}
+
+2. 热工提水与电力排程: [${d.waterExtraction.furnaceType}]
+   - 最佳脱水温区: ${d.waterExtraction.bestTemp}
+   - 能耗与排程: ${d.waterExtraction.powerSchedule} (热耗: ${sample.waterEnergy} kWh/t)
+   - 冷凝水处理: ${d.waterExtraction.waterRefine}
+   - 工程备忘: ${d.waterExtraction.note}
+
+3. 基地建材与构件 BOM: [${d.construction.route}]
+   - 随船消耗物料: ${d.construction.additives}
+   - 工序定额能耗: ${d.construction.power}
+   - 目标力学指标: ${d.construction.target}
+   - 结构用途: ${d.construction.note}
+
+4. 副产物与危险废弃物处置:
+   - 释氧副产物信用: ${d.hazard.o2Credit} (${d.hazard.o2Temp})
+   - 挥发烟气预警: ${d.hazard.gasWarning}
+   - 浓缩残渣规范: ${d.hazard.wasteHandling}
+   - 风险备忘: ${d.hazard.note}
+
+【指挥官综合裁决】
+${sample.verdict}`;
+
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(summary);
+    showToast("工程决断报告已复制", "包含脱氯改土、提水排程与建材配方的完整通报已存入剪贴板");
+  } catch {
+    showToast("无法复制报告", "浏览器未允许访问剪贴板，请允许后重试");
+  }
+}
+
+/* =========================================================================
+   CANVAS 1: PETROGRAPHIC OPTICAL MICROSCOPE (真实偏光显微镜)
+   ========================================================================= */
+const mCanvas = document.getElementById('microCanvas');
+const mCtx = mCanvas.getContext('2d');
+let mW = 0, mH = 0;
+
+function resizeMicroCanvas() {
+  const box = document.getElementById('microContainer');
+  if (!box) return;
+  mW = box.clientWidth;
+  mH = box.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  mCanvas.width = Math.round(mW * dpr);
+  mCanvas.height = Math.round(mH * dpr);
+  mCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+mCanvas.addEventListener('mousemove', (e) => {
+  const r = mCanvas.getBoundingClientRect();
+  laserAim.x = (e.clientX - r.left) / mW;
+  laserAim.y = (e.clientY - r.top) / mH;
+
+  const dxUm = (laserAim.x - 0.5) * 1200;
+  const dyUm = (laserAim.y - 0.5) * 800;
+  document.getElementById('laserCoordText').innerText = `X: ${dxUm >= 0 ? '+' : ''}${dxUm.toFixed(0)}μm, Y: ${dyUm >= 0 ? '+' : ''}${dyUm.toFixed(0)}μm`;
+
+  const seed = Math.sin(laserAim.x * 20 + laserAim.y * 30);
+  const min = seed > 0.4 ? sample.minerals[0].name : seed > -0.1 ? sample.minerals[1].name : sample.minerals[2].name;
+  document.getElementById('targetMineralText').innerText = `靶心微区: ${min}`;
+});
+
+mCanvas.addEventListener('click', () => fireLaserProbe());
+
+function drawMicroscopeView(now) {
+  if (mW <= 0 || mH <= 0) return;
+  const tc = sample.thinColors;
+
+  // Background matrix
+  mCtx.fillStyle = '#111413';
+  mCtx.fillRect(0, 0, mW, mH);
+
+  // Optical field circle clipping
+  const cx = mW * 0.5;
+  const cy = mH * 0.5;
+  const lensR = Math.min(mW, mH) * 0.37;
+
+  // Scale the optical housing with its viewport; keep the sample as the focus.
+  mCtx.strokeStyle = '#475346';
+  mCtx.lineWidth = 1;
+  for (const offset of [0, 7, 14]) {
+    mCtx.beginPath();
+    mCtx.arc(cx, cy, lensR + offset, 0, Math.PI * 2);
+    mCtx.stroke();
+  }
+  for (let i = 0; i < 72; i++) {
+    const angle = i * Math.PI / 36;
+    const outer = lensR + (i % 6 === 0 ? 24 : 19);
+    mCtx.beginPath();
+    mCtx.moveTo(cx + Math.cos(angle) * (lensR + 16), cy + Math.sin(angle) * (lensR + 16));
+    mCtx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+    mCtx.stroke();
+  }
+
+  mCtx.save();
+  mCtx.beginPath();
+  mCtx.arc(cx, cy, lensR, 0, Math.PI * 2);
+  mCtx.clip();
+  mCtx.fillStyle = curIllum === 'UV' ? '#03060c' : curIllum === 'XPL' ? '#070a10' : tc.base;
+  mCtx.fillRect(0, 0, mW, mH);
+
+  // Draw procedural realistic mineral grains
+  const numGrains = 65;
+  for (let i = 0; i < numGrains; i++) {
+    const s = Math.sin(i * 137.5);
+    const radDist = Math.sqrt(Math.abs(s)) * (lensR * 0.95);
+    const ang = i * 2.39996; // golden angle
+    const gx = cx + Math.cos(ang) * radDist;
+    const gy = cy + Math.sin(ang) * radDist;
+    const gr = (8 + Math.abs(Math.sin(i * 24.3)) * 14) * (lensR / 130);
+
+    mCtx.beginPath();
+    // Polygon facets
+    const sides = 5 + (i % 3);
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2 + Math.sin(i + k);
+      const rJitter = gr * (0.75 + Math.sin(i * 3 + k) * 0.25);
+      const px = gx + Math.cos(a) * rJitter;
+      const py = gy + Math.sin(a) * rJitter;
+      if (k === 0) mCtx.moveTo(px, py);
+      else mCtx.lineTo(px, py);
+    }
+    mCtx.closePath();
+
+    if (curIllum === 'VIS') {
+      const type = (i % 4);
+      if (type === 0) mCtx.fillStyle = tc.plag;
+      else if (type === 1) mCtx.fillStyle = tc.aug;
+      else if (type === 2) mCtx.fillStyle = tc.clay;
+      else mCtx.fillStyle = tc.oxide;
+    } else if (curIllum === 'XPL') {
+      // Cross-polarized Nicol interference colors!
+      const type = (i % 5);
+      if (type === 0) mCtx.fillStyle = '#facc15'; // 2nd order yellow
+      else if (type === 1) mCtx.fillStyle = '#f43f5e'; // 2nd order pink
+      else if (type === 2) mCtx.fillStyle = '#38bdf8'; // 1st order blue
+      else if (type === 3) mCtx.fillStyle = '#a855f7'; // 2nd order violet
+      else mCtx.fillStyle = '#05070a'; // extinction
+    } else {
+      // UV Fluorescence
+      const type = (i % 4);
+      if (type === 0) mCtx.fillStyle = '#22d3ee';
+      else if (type === 1) mCtx.fillStyle = '#34d399';
+      else mCtx.fillStyle = '#07101a';
+    }
+    mCtx.fill();
+
+    mCtx.strokeStyle = curIllum === 'UV' ? 'rgba(0,172,193,0.3)' : 'rgba(0,0,0,0.45)';
+    mCtx.lineWidth = 1;
+    mCtx.stroke();
+  }
+
+  // Draw Laser Reticle Crosshair
+  const lx = laserAim.x * mW;
+  const ly = laserAim.y * mH;
+
+  mCtx.strokeStyle = '#00acc1';
+  mCtx.lineWidth = 1;
+  mCtx.beginPath();
+  mCtx.arc(lx, ly, 16, 0, Math.PI * 2);
+  mCtx.stroke();
+
+  mCtx.fillStyle = '#ffaa00';
+  mCtx.beginPath();
+  mCtx.arc(lx, ly, 2.5, 0, Math.PI * 2);
+  mCtx.fill();
+
+  mCtx.beginPath();
+  mCtx.moveTo(lx - 24, ly); mCtx.lineTo(lx - 10, ly);
+  mCtx.moveTo(lx + 10, ly); mCtx.lineTo(lx + 24, ly);
+  mCtx.moveTo(lx, ly - 24); mCtx.lineTo(lx, ly - 10);
+  mCtx.moveTo(lx, ly + 10); mCtx.lineTo(lx, ly + 24);
+  mCtx.stroke();
+
+  // Laser Flash Plume
+  const dtLaser = now - laserFlashTime;
+  if (dtLaser < 220) {
+    const flashR = (1 - dtLaser / 220) * 40;
+    const g = mCtx.createRadialGradient(lx, ly, 0, lx, ly, flashR);
+    g.addColorStop(0, 'rgba(255,255,255,0.95)');
+    g.addColorStop(0.35, 'rgba(192, 132, 252, 0.7)');
+    g.addColorStop(1, 'transparent');
+    mCtx.fillStyle = g;
+    mCtx.beginPath();
+    mCtx.arc(lx, ly, flashR, 0, Math.PI * 2);
+    mCtx.fill();
+  }
+
+  mCtx.restore();
+}
+
+/* =========================================================================
+   CANVAS 2: MASTER DIAGNOSTIC SPECTRA (XRD, SAM EGA, RAMAN)
+   ========================================================================= */
+const dCanvas = document.getElementById('diagCanvas');
+const dCtx = dCanvas.getContext('2d');
+let dW = 0, dH = 0;
+
+function resizeDiagCanvas() {
+  const box = document.getElementById('diagCanvasContainer');
+  if (!box) return;
+  dW = box.clientWidth;
+  dH = box.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dCanvas.width = Math.round(dW * dpr);
+  dCanvas.height = Math.round(dH * dpr);
+  dCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+let dHover = { x: -1, y: -1, active: false };
+
+dCanvas.addEventListener('mousemove', (e) => {
+  const r = dCanvas.getBoundingClientRect();
+  dHover.x = e.clientX - r.left;
+  dHover.y = e.clientY - r.top;
+  dHover.active = true;
+
+  const tip = document.getElementById('spectrumTooltip');
+  const curVal = document.getElementById('spectrumCursorVal');
+
+  if (curDiagMode === 'XRD') {
+    const theta = 4 + (dHover.x / dW) * 41;
+    curVal.innerText = `${theta.toFixed(2)}° 2θ`;
+
+    let nearest = null;
+    let minDist = 999;
+    sample.xrd.forEach(p => {
+      const px = ((p.theta - 4) / 41) * dW;
+      const d = Math.abs(px - dHover.x);
+      if (d < minDist && d < 25) { minDist = d; nearest = p; }
+    });
+
+    if (nearest) {
+      tip.style.display = 'block';
+      tip.style.left = `${Math.max(8, Math.min(dW - tip.offsetWidth - 8, dHover.x + 12))}px`;
+      tip.style.top = `${Math.max(8, Math.min(dH - tip.offsetHeight - 8, dHover.y + 10))}px`;
+      document.getElementById('tipAngle').innerText = `2θ = ${nearest.theta}°`;
+      document.getElementById('tipInt').innerText = `峰强: ${nearest.intensity}%`;
+      document.getElementById('tipPhase').innerText = nearest.phase;
+      document.getElementById('tipHkl').innerText = nearest.hkl;
+      document.getElementById('tipGenesis').innerText = nearest.genesis;
+    } else {
+      tip.style.display = 'none';
+    }
+  } else if (curDiagMode === 'SAM') {
+    const tempC = 50 + (dHover.x / dW) * 800;
+    curVal.innerText = `${Math.round(tempC)} °C`;
+
+    let nearestGas = null;
+    let minDist = 999;
+    sample.ega.forEach(g => {
+      const gx = ((g.tempC - 50) / 800) * dW;
+      const d = Math.abs(gx - dHover.x);
+      if (d < minDist && d < 30) { minDist = d; nearestGas = g; }
+    });
+
+    if (nearestGas) {
+      tip.style.display = 'block';
+      tip.style.left = `${Math.max(8, Math.min(dW - tip.offsetWidth - 8, dHover.x + 12))}px`;
+      tip.style.top = `${Math.max(8, Math.min(dH - tip.offsetHeight - 8, dHover.y + 10))}px`;
+      document.getElementById('tipAngle').innerText = `脱气温区: ${nearestGas.tempC}°C`;
+      document.getElementById('tipInt').innerText = `产率: ${nearestGas.yield} wt%`;
+      document.getElementById('tipPhase').innerText = nearestGas.gas;
+      document.getElementById('tipHkl').innerText = `m/z = ${nearestGas.mass}`;
+      document.getElementById('tipGenesis').innerText = '矿物结晶水/盐类分解';
+    } else {
+      tip.style.display = 'none';
+    }
+  } else {
+    const shift = 150 + (dHover.x / dW) * 3350;
+    curVal.innerText = `${Math.round(shift)} cm⁻¹`;
+    tip.style.display = 'none';
+  }
+});
+
+dCanvas.addEventListener('mouseleave', () => {
+  dHover.active = false;
+  document.getElementById('spectrumTooltip').style.display = 'none';
+});
+
+dCanvas.addEventListener('click', () => triggerScanSweep());
+
+function drawSpectraView(now) {
+  if (dW <= 0 || dH <= 0) return;
+  dCtx.fillStyle = '#111413';
+  dCtx.fillRect(0, 0, dW, dH);
+
+  const baseY = dH - 30;
+
+  // Grid Lines
+  dCtx.strokeStyle = '#262e27';
+  dCtx.lineWidth = 1;
+  dCtx.textAlign = 'left';
+  for (let row = 1; row <= 4; row++) {
+    const y = (baseY / 5) * row;
+    dCtx.beginPath();
+    dCtx.moveTo(0, y); dCtx.lineTo(dW, y); dCtx.stroke();
+  }
+  const numSteps = dW < 400 ? 5 : 8;
+  for (let i = 0; i <= numSteps; i++) {
+    const x = (dW / numSteps) * i;
+    dCtx.beginPath();
+    dCtx.moveTo(x, 0); dCtx.lineTo(x, baseY);
+    dCtx.stroke();
+
+    const fraction = i / numSteps;
+    const tick = curDiagMode === 'XRD' ? `${Math.round(4 + fraction * 41)}°`
+      : curDiagMode === 'SAM' ? `${Math.round(50 + fraction * 800)}°C`
+      : `${Math.round(150 + fraction * 3350)}`;
+    dCtx.fillStyle = '#94a08d';
+    dCtx.font = '10px monospace';
+    dCtx.textAlign = i === numSteps ? 'right' : 'left';
+    dCtx.fillText(tick, i === numSteps ? x - 2 : x + 2, dH - 8);
+  }
+
+  if (curDiagMode === 'XRD') {
+    // 2D Debye-Scherrer CCD Ring Inset
+    if (show2DRing) {
+      const cx = dW * 0.5;
+      const cy = dH * 0.35;
+      dCtx.save();
+      dCtx.strokeStyle = 'rgba(0,172,193,0.3)';
+      dCtx.beginPath();
+      dCtx.arc(cx, cy, 75, 0, Math.PI * 2);
+      dCtx.stroke();
+
+      dCtx.fillStyle = '#05070a';
+      dCtx.beginPath();
+      dCtx.arc(cx, cy, 12, 0, Math.PI * 2);
+      dCtx.fill();
+
+      sample.xrd.forEach((p, idx) => {
+        const rad = 16 + (p.theta / 45) * 58;
+        dCtx.strokeStyle = p.intensity > 80 ? 'rgba(255,170,0,0.7)' : 'rgba(38,198,218,0.45)';
+        dCtx.lineWidth = p.intensity > 80 ? 1.5 : 0.9;
+        dCtx.beginPath();
+        dCtx.arc(cx, cy, rad, 0, Math.PI * 2);
+        dCtx.stroke();
+      });
+      dCtx.restore();
+    }
+
+    // 1D Spectrum Curve
+    dCtx.beginPath();
+    dCtx.strokeStyle = '#e9aa72';
+    dCtx.lineWidth = 1.8;
+
+    for (let x = 0; x < dW; x += 2) {
+      const amorphousHump = Math.exp(-Math.pow((x - dW * 0.38) / (dW * 0.18), 2)) * 12;
+      let intensity = Math.sin(x * 0.06) * 1.5 + 4 + amorphousHump;
+
+      sample.xrd.forEach(p => {
+        const px = ((p.theta - 4) / 41) * dW;
+        const dx = x - px;
+        const fwhm = 6.5;
+        const h = (p.intensity / 100) * (dH * 0.6) * scanProgress;
+        intensity += h / (1 + (dx * dx) / (fwhm * fwhm));
+      });
+
+      const y = baseY - intensity;
+      if (x === 0) dCtx.moveTo(x, y);
+      else dCtx.lineTo(x, y);
+    }
+    dCtx.stroke();
+
+    // Area Fill
+    dCtx.lineTo(dW, baseY);
+    dCtx.lineTo(0, baseY);
+    dCtx.closePath();
+    const g = dCtx.createLinearGradient(0, 0, 0, dH);
+    g.addColorStop(0, 'rgba(255,170,0,0.12)');
+    g.addColorStop(1, 'transparent');
+    dCtx.fillStyle = g;
+    dCtx.fill();
+
+    // Rietveld Refined Curve
+    if (showRietveld) {
+      dCtx.save();
+      dCtx.setLineDash([3, 3]);
+      dCtx.strokeStyle = '#9dc0b4';
+      dCtx.lineWidth = 1.2;
+      dCtx.beginPath();
+      for (let x = 0; x < dW; x += 3) {
+        const amorphousHump = Math.exp(-Math.pow((x - dW * 0.38) / (dW * 0.18), 2)) * 12;
+        let calcInt = 4 + amorphousHump;
+        sample.xrd.forEach(p => {
+          const px = ((p.theta - 4) / 41) * dW;
+          const dx = x - px;
+          const fwhm = 6.5;
+          const h = (p.intensity / 100) * (dH * 0.58) * scanProgress;
+          calcInt += h / (1 + (dx * dx) / (fwhm * fwhm));
+        });
+        const y = baseY - calcInt;
+        if (x === 0) dCtx.moveTo(x, y);
+        else dCtx.lineTo(x, y);
+      }
+      dCtx.stroke();
+      dCtx.restore();
+    }
+
+    // Peak Drop Pins
+    sample.xrd.forEach(p => {
+      const px = ((p.theta - 4) / 41) * dW;
+      const h = (p.intensity / 100) * (dH * 0.6) * scanProgress;
+      const py = baseY - h - 10;
+
+      dCtx.strokeStyle = 'rgba(255,170,0,0.4)';
+      dCtx.setLineDash([2, 2]);
+      dCtx.beginPath();
+      dCtx.moveTo(px, baseY);
+      dCtx.lineTo(px, py);
+      dCtx.stroke();
+      dCtx.setLineDash([]);
+
+      dCtx.fillStyle = '#e9aa72';
+      dCtx.beginPath();
+      dCtx.arc(px, py, 2.5, 0, Math.PI * 2);
+      dCtx.fill();
+
+      dCtx.fillStyle = '#dfc7a6';
+      dCtx.font = '11px sans-serif';
+      dCtx.textAlign = 'center';
+      const label = p.phase.split(' ')[0];
+      const halfLabel = dCtx.measureText(label).width / 2 + 2;
+      dCtx.fillText(label, Math.max(halfLabel, Math.min(dW - halfLabel, px)), py - 9);
+    });
+
+  } else if (curDiagMode === 'SAM') {
+    sample.ega.forEach(g => {
+      dCtx.strokeStyle = g.color;
+      dCtx.lineWidth = 1.8;
+      dCtx.beginPath();
+      const cx = ((g.tempC - 50) / 800) * dW;
+      const wPx = 48;
+      const hPx = (g.yield / 5.0) * (dH * 0.58) * scanProgress;
+
+      for (let x = cx - wPx * 2; x <= cx + wPx * 2; x += 3) {
+        if (x < 0 || x > dW) continue;
+        const dx = x - cx;
+        const y = baseY - hPx * Math.exp(-(dx * dx) / (2 * (wPx * 0.4) * (wPx * 0.4)));
+        if (x === cx - wPx * 2) dCtx.moveTo(x, y);
+        else dCtx.lineTo(x, y);
+      }
+      dCtx.stroke();
+
+      dCtx.fillStyle = g.color;
+      dCtx.font = '10px sans-serif';
+      dCtx.textAlign = 'center';
+      const label = dW < 450 ? `${g.gas.split(' ')[0]} · ${g.mass}` : `${g.gas} (m/z ${g.mass})`;
+      const halfLabel = dCtx.measureText(label).width / 2 + 2;
+      dCtx.fillText(label, Math.max(halfLabel, Math.min(dW - halfLabel, cx)), baseY - hPx - 9);
+    });
+  } else {
+    dCtx.beginPath();
+    dCtx.strokeStyle = '#c2b4cc';
+    dCtx.lineWidth = 1.8;
+    for (let x = 0; x < dW; x += 2) {
+      let intensity = Math.sin(x * 0.08) * 1.5 + 5;
+      sample.raman.forEach(rp => {
+        const rx = ((rp.shift - 150) / 3350) * dW;
+        const dx = x - rx;
+        const fwhm = 8;
+        const h = (rp.int / 100) * (dH * 0.58) * scanProgress;
+        intensity += h / (1 + (dx * dx) / (fwhm * fwhm));
+      });
+      const y = baseY - intensity;
+      if (x === 0) dCtx.moveTo(x, y);
+      else dCtx.lineTo(x, y);
+    }
+    dCtx.stroke();
+  }
+
+  // Sweep line
+  if (isScanning) {
+    const sx = scanProgress * dW;
+    dCtx.save();
+    dCtx.strokeStyle = '#fff';
+    dCtx.lineWidth = 1.5;
+    dCtx.beginPath();
+    dCtx.moveTo(sx, 0);
+    dCtx.lineTo(sx, baseY);
+    dCtx.stroke();
+    dCtx.restore();
+  }
+}
+
+function masterLoop(now) {
+  drawMicroscopeView(now);
+
+  if (isScanning) {
+    scanProgress += 0.018;
+    const pct = Math.min(100, Math.floor(scanProgress * 100));
+    document.getElementById('scanProgressPct').innerText = `${pct}%`;
+
+    if (scanProgress >= 1.0) {
+      scanProgress = 1.0;
+      isScanning = false;
+      document.getElementById('scanStatusLabel').innerText = "静态拟合已收敛";
+      document.getElementById('scanStatusDot').style.background = "var(--emerald)";
+    }
+  }
+
+  drawSpectraView(now);
+  requestAnimationFrame(masterLoop);
+}
+
+function resizeAll() {
+  resizeMicroCanvas();
+  resizeDiagCanvas();
+}
+
+window.addEventListener('resize', resizeAll);
+const canvasResizeObserver = new ResizeObserver(resizeAll);
+canvasResizeObserver.observe(document.getElementById('microContainer'));
+canvasResizeObserver.observe(document.getElementById('diagCanvasContainer'));
+window.onload = () => {
+  resizeAll();
+  switchMarsSample('JEZERO');
+  requestAnimationFrame(masterLoop);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+import {powerResearchAction,normalizePowerResearch} from './power-research.js';
+export function mountPowerResearch({mobility,getJourney,state,save,notify,idle}){
+ let modal=null;
+ const context=()=>{const s=state(),p=mobility.astronaut.position,b=s.power.site;return {eligible:!!getJourney()?.cards?.done?.['H-end'],frozen:mobility.frozen,idle:idle(),near:!!b&&mobility.walking&&!mobility.refuge?.inside&&Math.hypot(p.x-(b.x+6),p.z-(b.z+10))<=3};};
+ function close(){modal?.remove();modal=null;mobility.setOverlay(false);removeEventListener('keydown',key,true);}
+ function key(e){if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}}
+ function action(type){if(type==='inspectPowerResearch')return open();const r=powerResearchAction(state(),type,context());if(r.changed)save(r.state);notify(r.reason||(r.changed?'供电科研记录已保存。':'记录已经启动。'));return r.ok;}
+ function open(){const c=context();if(!c.eligible||c.frozen)return false;const s=state(),r=normalizePowerResearch(s.powerResearch),hours=Math.max(0,r.endEnergy-8)/2;
+ modal=document.createElement('dialog');modal.className='research-dialog';modal.setAttribute('aria-label','阿玛拉供电记录');
+ modal.innerHTML='<header><small>AMARA / POWER RESEARCH 01</small><h2>营地短时供电记录</h2></header><p>记录现有配电账本，不新增电源。有效窗口内只观察2 kW营地基础负载；车辆充电、其他实验或阵列施工期间暂停记录。</p><p class="pr-progress"></p><section class="pr-data"></section><h3>预算与边界</h3><p class="pr-result"></p><details><summary>记录方法与教学参数</summary><p>60秒有效窗口对应0.5模拟小时。光伏按同一积尘/日照函数积分，电池上下限截断单列弃电和未供能；此处未供能是预算缺口，不是已模拟的人员伤害。界面、地图、暂停和后台冻结；无离线记录。发生其他用电时累计有效窗口，不能视为连续完整周期。</p><p>无光照估计采用末次记录电量，保留8 kWh，再除以2 kW。只适用于当前基础负载，不含水务、育苗、车辆或未来扩容；没有传感器误差、线路损耗和完整昼夜验证。阿玛拉仍在轨道。</p></details><p class="research-reason" role="status"></p><footer></footer>';
+ modal.querySelector('.pr-progress').textContent=`有效记录 ${r.elapsed.toFixed(1)} / 60秒 · ${r.elapsed===60?'已完成':!s.power.online?'电网离线，暂停':!c.idle||s.power.solar.job?'其他用电/施工中，暂停':'关闭面板后继续'}`;
+ const data=modal.querySelector('.pr-data');for(const line of [`光伏发电 ${r.generated.toFixed(4)} kWh · 基础负载 ${r.load.toFixed(4)} kWh`,`电池净变化 ${r.delta.toFixed(4)} kWh · 弃电 ${r.spill.toFixed(4)} kWh · 未供能 ${r.unserved.toFixed(4)} kWh`,`末次电量 ${r.endEnergy.toFixed(3)} kWh`]){const p=document.createElement('p');p.textContent=line;data.append(p);}
+ modal.querySelector('.pr-result').textContent=r.elapsed===60?`按记录末值、无光照和2 kW基础负载，至8 kWh储备约 ${hours.toFixed(2)} 模拟小时。短时记录不证明全年可靠性；当前其他负载必须另计。`:'尚未完成记录，不提前生成续航结论。';
+ const type=r.elapsed===60?'readPowerResearch':'startPowerResearch',check=powerResearchAction(s,type,{...c,frozen:false}),b=document.createElement('button');b.dataset.powerResearchAction=type;b.textContent=r.read?'已确认报告':r.elapsed===60?'确认供电报告':r.started?'记录进行中':'启动记录';b.disabled=!check.ok||!check.changed;modal.querySelector('.research-reason').textContent=check.reason||(r.started&&r.elapsed<60?'关闭面板继续；暂停期间已记录数据保留。':'现场确认保存报告。');b.onclick=()=>{close();action(type);};modal.querySelector('footer').append(b);
+ const exit=document.createElement('button');exit.textContent='关闭 · Esc';exit.onclick=close;modal.querySelector('footer').append(exit);modal.addEventListener('cancel',e=>{e.preventDefault();close();});document.body.append(modal);mobility.setOverlay(true);modal.showModal();addEventListener('keydown',key,true);return true;
+ }
+ return {action,open,actionStatus(name){if(!['startPowerResearch','readPowerResearch','inspectPowerResearch'].includes(name))return null;const c=context();if(name==='inspectPowerResearch')return {ready:c.eligible&&!c.frozen,reason:'先完成H段。'};const r=powerResearchAction(state(),name,c);return {ready:r.ok&&r.changed,reason:r.reason||'本步骤已登记。'};},interact(){const c=context();return c.eligible&&c.near&&!c.frozen?open():false;}};
+}

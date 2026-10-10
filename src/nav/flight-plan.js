@@ -2,13 +2,17 @@
  * NX07（游隼）航线计算与存档。纯函数，无 DOM，Node 可测。
  * 坐标为行星中心纬度 / 东经 0–360°；距离单位 km；航向为真北顺时针度数。
  */
-export const R_MARS_KM = 3389.5, CRZ_KMH = 972, CRZ_MAX_KM = 400, LOCAL_KM = 6.4;
+export const R_MARS_KM = 3389.5, CRZ_KMH = 972, CRZ_MAX_KM = 400;
+/** 「本地」范围：这么远以内都在当前地表场景里——遗迹和生活舱放得进来、车能规划路线开过去、NX07 全程真飞不转场。
+ * 原来是 6.4 km（路线规划器的网格跨度 8000 m × 0.8），洞察号离默认着陆点 7.42 km 刚好在外面，陆路到不了。
+ * 地面网格跟着镜头走以后（terrain-follow.js，D68）场景不再只有原点附近是精细的，放到 8 km。 */
+export const LOCAL_KM = 8;
 /** 起飞与降落两段实时掠地飞行（设计规则，DISCUSSION_LOG D16）：离地 100 m、按 CRZ 速度 972 km/h；
  * 起飞后掠地 25 s 再转航线图；终点从着陆点前方 6 km 进场，按 12 m/s² 减速曲线降速。*/
 export const SKIM = Object.freeze({ aglM: 100, speedMs: CRZ_KMH / 3.6, departSeconds: 25, approachM: 6000, decel: 12 });
 export const PLAN_KEY = 'cosmos.kestrel.flightplan.v1', NAV_KEY = 'cosmos.kestrel.nav.v1';
-/** 没有游戏存档时的起点：先遣营地（原型固定起点）。*/
-export const CAMP = Object.freeze({ lat: -13.4, lon: 300.6 });
+/** 没有游戏存档时的起点：先遣营地，即默认着陆点（与 journey/state.js 的 DEFAULT_SITE 相同，D60）。*/
+export const CAMP = Object.freeze({ lat: 4.375, lon: 135.625 });
 const MODES = ['auto', 'CRZ', 'ORB'], ORIGIN_IDS = ['PPOS', 'CAMP'];
 const D2R = Math.PI / 180, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 

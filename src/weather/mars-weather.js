@@ -79,6 +79,26 @@ export function subsolarPoint(time) {
   const T = normalizeTime(time);
   return { lat: Math.asin(Math.sin(MARS.obliquityDeg * D2R) * Math.sin(T.ls * D2R)) / D2R, lon: wrap360(T.refLon + (.5 - T.dayFraction) * 360) };
 }
+/** 晨昏线：离日下点 90° 的大圆（太阳高度 0°），n 段折线，经度不回绕，按顺序连起来就是一整圈。
+ * 赤道上晨线在日下点以西 90°（当地 06:00），昏线在以东 90°（18:00）。*/
+export function terminatorPoints(time, n = 180) {
+  const s = subsolarPoint(time), la = s.lat * D2R, lo = s.lon * D2R;
+  const sun = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+  // a：日下点经线上、朝北离开太阳 90° 的点；b = sun × a，两者张成晨昏圈。
+  const a = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)];
+  const b = [sun[1] * a[2] - sun[2] * a[1], sun[2] * a[0] - sun[0] * a[2], sun[0] * a[1] - sun[1] * a[0]];
+  const out = [];
+  let prev = null;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n * Math.PI * 2, c = Math.cos(t), si = Math.sin(t);
+    const x = a[0] * c + b[0] * si, y = a[1] * c + b[1] * si, z = a[2] * c + b[2] * si;
+    let lon = Math.atan2(y, x) / D2R;
+    if (prev !== null) { while (lon - prev > 180) lon -= 360; while (prev - lon > 180) lon += 360; }
+    prev = lon;
+    out.push({ lat: Math.asin(clamp(z, -1, 1)) / D2R, lon });
+  }
+  return out;
+}
 export function sunElevationDeg(lat, lon, time) {
   const T = normalizeTime(time), dec = Math.asin(Math.sin(MARS.obliquityDeg * D2R) * Math.sin(T.ls * D2R));
   const h = (localFraction(T, lon) - .5) * 2 * Math.PI;

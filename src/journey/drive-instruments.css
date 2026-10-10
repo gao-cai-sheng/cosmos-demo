@@ -1,0 +1,58 @@
+/* ARES gauges take the command deck's instrument slots while driving; the text tables stay in 车辆详情. */
+.cd-drive-active .cd-instruments { display:none; }
+.cd-drive { position:absolute; left:14px; right:14px; bottom:267px; display:flex; justify-content:space-between; align-items:flex-end; gap:40px; pointer-events:none; }
+.cd-drive[hidden] { display:none; }
+.cd-drive-panel { width:320px; max-width:27vw; padding:8px 10px 6px; background:rgba(3,9,14,.76); border:1px solid var(--cd-line); }
+.cd-drive-panel h2 { font-size:10px; font-weight:500; color:var(--cd-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cd-drive-panel h2 span { margin-left:4px; color:#6b7d8a; }
+.cd-drive-panel[data-missing] svg { opacity:.3; }
+.cd-drive-row { display:flex; align-items:flex-end; gap:4px; margin-top:4px; }
+.cd-dial,.cd-wheels { margin:0; text-align:center; }
+.cd-dial { flex:1 1 0; min-width:0; }
+.cd-wheels { flex:none; width:52px; }
+.cd-dial svg,.cd-wheels svg { display:block; width:100%; height:auto; overflow:visible; }
+.cd-wheels svg { height:74px; }
+.cd-dial figcaption,.cd-wheels figcaption { margin-top:3px; font-size:10px; line-height:1.3; white-space:nowrap; }
+.cd-dial figcaption span,.cd-wheels figcaption span { color:var(--cd-dim); margin-right:4px; }
+.cd-dial figcaption b,.cd-wheels figcaption b { color:var(--cd-cyan); font-weight:700; }
+.cd-wheels figcaption { display:flex; flex-direction:column; }
+.cd-wheels figcaption span { margin:0; }
+
+.cd-dial-track { fill:none; stroke:#1f3a48; stroke-width:5; }
+.cd-dial-ticks { fill:none; stroke:#4f7686; stroke-width:1; }
+.cd-dial-limit { fill:none; stroke:var(--cd-amber); stroke-width:2; }
+.cd-dial-ground { fill:none; stroke:var(--cd-green); stroke-width:1.2; }
+.cd-dial-body,.cd-dial-cab { fill:rgba(34,211,238,.12); stroke:var(--cd-cyan); stroke-width:1.2; }
+.cd-dial-cab { fill:rgba(34,211,238,.28); }
+.cd-dial-tyre { fill:#070b10; stroke:#5eb8d0; stroke-width:1.2; }
+.cd-dial-pointer { fill:var(--cd-cyan); }
+.cd-dial[data-level="warn"] .cd-dial-body,.cd-dial[data-level="warn"] .cd-dial-cab { stroke:var(--cd-amber); }
+.cd-dial[data-level="warn"] .cd-dial-pointer { fill:var(--cd-amber); }
+.cd-dial[data-level="warn"] figcaption b { color:var(--cd-amber); }
+.cd-dial[data-level="limit"] .cd-dial-body,.cd-dial[data-level="limit"] .cd-dial-cab { stroke:var(--cd-red); }
+.cd-dial[data-level="limit"] .cd-dial-pointer { fill:var(--cd-red); }
+.cd-dial[data-level="limit"] figcaption b { color:var(--cd-red); }
+
+.cd-wheels-body { fill:rgba(34,211,238,.08); stroke:var(--cd-cyan); stroke-width:1; }
+.cd-wheels-cab { fill:rgba(34,211,238,.3); stroke:var(--cd-cyan); stroke-width:1; }
+.cd-wheels-nose { fill:var(--cd-cyan); }
+.cd-wheel { fill:#0b2a1f; stroke:var(--cd-green); stroke-width:1.2; }
+.cd-wheel[data-tone="amber"] { fill:#2a1d06; stroke:var(--cd-amber); }
+.cd-wheel[data-tone="red"] { fill:#2c0f0c; stroke:var(--cd-red); }
+.cd-wheels[data-tone="amber"] figcaption b { color:var(--cd-amber); }
+.cd-wheels[data-tone="red"] figcaption b { color:var(--cd-red); }
+
+.cd-drive-speed svg { display:block; width:100%; height:auto; max-height:124px; margin-top:2px; }
+.cd-speed-track { fill:none; stroke:#1f3a48; stroke-width:7; }
+.cd-speed-fill { fill:none; stroke:var(--cd-cyan); stroke-width:7; filter:drop-shadow(0 0 3px rgba(34,211,238,.7)); }
+.cd-drive-speed[data-boost="true"] .cd-speed-fill { stroke:var(--cd-amber); filter:drop-shadow(0 0 3px rgba(245,165,36,.7)); }
+.cd-speed-ticks { fill:none; stroke:#4f7686; stroke-width:1.2; }
+path.cd-speed-cruise { stroke:#e8eef4; stroke-width:2; }
+path.cd-speed-boost { stroke:var(--cd-amber); stroke-width:2; }
+text.cd-speed-cruise { fill:#e8eef4; font-size:10px; }
+text.cd-speed-boost { fill:var(--cd-amber); font-size:10px; }
+.cd-speed-value { fill:var(--cd-cyan); font-size:32px; font-weight:700; }
+.cd-speed-unit { fill:var(--cd-dim); font-size:10px; }
+
+@media (max-width:1250px) and (min-width:1001px) { .cd-drive { bottom:282px; } }
+@media (max-width:1000px), (max-height:650px) { .cd-drive { display:none; } }

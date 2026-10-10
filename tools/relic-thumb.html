@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><title>Relic card thumbnail</title>
+<!-- 任务卡上的遗迹小图（D76）：?relic=INSG。渲染好以后 window.__thumb 是 PNG 的 data URL。
+     只在做图时用（docs/evidence/2026-10-03-erin-ch5-7/scripts/relic-thumbs.mjs），游戏不加载这一页。 -->
+<style>html,body{margin:0;background:#0b1117}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { loadBlenderAsset } from '../src/journey/assets/blender-assets.js';
+import { RELIC_MODELS } from '../src/relics/catalog.js';
+
+const id = new URLSearchParams(location.search).get('id') || new URLSearchParams(location.search).get('relic'), model = RELIC_MODELS[id], SIZE = 1024;
+if (!model) throw new Error('Unknown relic: ' + id);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(SIZE, SIZE); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.AgXToneMapping; renderer.setClearColor(0x000000, 0);
+document.body.append(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b5a4c, 1.6));
+const sun = new THREE.DirectionalLight(0xfff0db, 2.6); sun.position.set(-3, 5, 4); scene.add(sun);
+// 一处有几件（探路者 + 旅居者）都摆上，位置照 catalog.js：dx 向东、dz 向南。
+const group = new THREE.Group(); scene.add(group);
+for (const part of [{ file: model.file, dx: 0, dz: 0 }, ...(model.extras || [])]) {
+  const piece = await loadBlenderAsset(`relics/${part.file}`);
+  piece.position.set(part.dx || 0, 0, part.dz || 0); piece.rotation.y = part.yaw ?? model.yaw ?? 0; group.add(piece);
+}
+const box = new THREE.Box3().setFromObject(group), centre = box.getCenter(new THREE.Vector3());
+const radius = box.getSize(new THREE.Vector3()).length() / 2;
+const camera = new THREE.PerspectiveCamera(30, 1, radius / 50, radius * 20);
+// 斜上方四分之三视角；距离取到整个包围球正好装进 30° 的镜头里。
+camera.position.copy(centre).addScaledVector(new THREE.Vector3(1, .62, 1.25).normalize(), radius / Math.sin(THREE.MathUtils.degToRad(15)) * 1.02);
+camera.lookAt(centre);
+renderer.render(scene, camera);
+// 在高分辨率渲染结果上量透明边界，再等比裁切到256px；只改取景，不移动零件。
+const source = document.createElement('canvas'); source.width = source.height = SIZE;
+const pixels = source.getContext('2d', { willReadFrequently: true });
+pixels.drawImage(renderer.domElement, 0, 0);
+const rgba = pixels.getImageData(0, 0, SIZE, SIZE).data;
+let left = SIZE, top = SIZE, right = -1, bottom = -1;
+for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+  if (rgba[(y * SIZE + x) * 4 + 3] <= 4) continue;
+  left = Math.min(left, x); right = Math.max(right, x);
+  top = Math.min(top, y); bottom = Math.max(bottom, y);
+}
+if (right < left) throw new Error('Empty relic render: ' + id);
+const crop = Math.max(right - left + 1, bottom - top + 1) / .84;
+const output = document.createElement('canvas'); output.width = output.height = 256;
+output.getContext('2d').drawImage(source, (left + right + 1 - crop) / 2,
+  (top + bottom + 1 - crop) / 2, crop, crop, 0, 0, 256, 256);
+renderer.domElement.replaceWith(output);
+window.__thumbBounds = { left, top, right, bottom, crop, sourceSize: SIZE };
+window.__thumbCanvas = output;
+window.__thumb = output.toDataURL('image/png');
+</script>

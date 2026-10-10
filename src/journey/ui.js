@@ -1,4 +1,5 @@
 import { getJourney, journeyStage, sceneURL, storageAvailable, getSettings, updateSettings } from './state.js';
+import { sfx } from './sfx.js';
 
 const CSS = new URL('./journey.css', import.meta.url).href;
 const STAGES = ['轨道选址', '地面勘测', '部署穹顶', '先遣站建设'];
@@ -69,7 +70,7 @@ export function mountJourneyUI({ scene, title, onPause = () => {} }) {
     dialog.append($('div', 'journey-kicker', 'MU-7 · 仙后座'), $('h2', '', '稍作停留'));
     dialog.append($('p', '', '当前位置与已完成任务会自动保存在这台设备上。'));
     const help = $('div', 'journey-help');
-    for (const [key, value] of [['W / S', '前进 / 倒车'], ['A / D', '转向'], ['空格', '刹车'], ['拖动 / 滚轮', '转视角 / 调整视距'], ['C', '切换太空人视角 / 驾驶机位'], ['F', '连接 / 结束遥控 / 就近登船 / 落地离船'], ['WASD / Shift', '步行移动 / 快走'], ['M', '地图导航与载具位置'], ['E / Q', '遥控时勘测 / 飞行时升降'], ['K', '保存画面']]) {
+    for (const [key, value] of [['W / S', '前进 / 倒车'], ['A / D', '转向'], ['空格', '刹车'], ['拖动 / 滚轮', '转视角 / 调整视距'], ['C', '切换太空人视角 / 驾驶机位'], ['F', '连接 / 结束遥控 / 就近登船 / 落地离船'], ['WASD / Shift', '步行移动 / 跑'], ['空格 / Z', '步行时跳 / 蹲（按住）'], ['M', '地图导航与载具位置'], ['E / Q', '遥控时勘测 / 飞行时升降'], ['K', '保存画面']]) {
       help.append($('kbd', '', key), $('span', '', value));
     }
     dialog.append(help);
@@ -81,6 +82,9 @@ export function mountJourneyUI({ scene, title, onPause = () => {} }) {
       dispatchEvent(new CustomEvent('cosmos:quality', { detail: next }));
     });
     options.append(quality);
+    const sound = button(getSettings().sound ? '音效：开' : '音效：关', () => {});
+    sound.dataset.marsSound = ''; sound.setAttribute('aria-pressed', String(getSettings().sound));
+    if (document.querySelector('.mobility-tools')) options.append(sound);
     if (scene === 'orbit' || scene === 'surface') {
       options.append(button('场景参数', () => {
         document.body.classList.toggle('journey-inspect'); closeDialog();
@@ -98,6 +102,8 @@ export function mountJourneyUI({ scene, title, onPause = () => {} }) {
     if (document.querySelector('dialog[open]:not(.journey-dialog)')) return;
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopImmediatePropagation();
+      const powerDetails = document.querySelector('.power-ui .pu-summary[aria-expanded="true"]');
+      if (!paused && powerDetails) { powerDetails.click(); return; }
       if (!briefOpen) pauseMenu();
     } else if (paused && !event.target.closest('dialog')) {
       event.stopImmediatePropagation();

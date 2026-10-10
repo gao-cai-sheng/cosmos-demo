@@ -1,7 +1,7 @@
 /* ============================================================
    MU-7「仙后座」无人遥控勘测车 · 火星型
    ------------------------------------------------------------
-   900 kg，六轮驱动，摇臂转向架悬挂，火星重力 3.72 m/s²。
+   900 kg，六轮驱动，双 A 臂独立悬挂，火星重力 3.72 m/s²。
 
    物理是一个真正的刚体：四元数姿态加惯量张量，每个轮位一条射线
    探地，轮胎力按滑移率算并约束在摩擦圆内，滚阻随下陷深度变化 ——
@@ -21,9 +21,25 @@ const MARS_G = 3.72;
 /* ---------------- 底盘常数 ---------------- */
 const MASS = 900;
 const WHEEL_R = 0.335, WHEEL_W = 0.30;
-const HALF_TRACK = 0.80;                    // 轮距的一半
 const AXLE_Z = [1.24, 0.0, -1.20];          // 前 / 中 / 后
 const SUSP_REST = 0.46, SUSP_TRAVEL = 0.36;
+/* 双 A 臂独立悬挂的几何（DISCUSSION_LOG D34），模型单位，按 +x 一侧写，另一侧镜像。
+   物理没有改：每个轮位仍是一根沿车身下方伸缩的弹簧阻尼（见 _substep）；原来画的摇臂转向架
+   和物理并不对应。这里只决定画出来的连杆怎么跟着那根弹簧走。
+   track   轮心横向位置，也是物理安装点（原 0.80；外移后摆臂才放得下，轮胎压到底也不碰车身）
+   rideY / droopY / bumpY  平地静载、完全伸出（= 0.10 − SUSP_REST）、机械上限（行程上限外再留 0.10 缓冲）时的轮心高度
+   armY    两根摆臂水平时的轮心高度，取行程中点，上下各摆约 26°
+   king    立柱（两个球头连线，即转向主销）在轮心内侧多远；立柱伸进开口轮辋，转向时轮子绕它转
+   upperY / lowerY  上下球头相对轮心的高度；pivotX 车架下吊带上铰轴的横向位置
+   hinge   每个轴 A 臂两个内侧衬套相对轮轴的前后位置；前后轴往车架内收，免得伸出车架
+   shock*  减震器：上眼在纵梁下，下眼在下臂 shockF 处、臂下 shockDrop；damper/rod 缸体与活塞杆长，perch* 弹簧座离两眼的距离 */
+export const SUSPENSION = {track:1.10, rideY:-.26, droopY:-.36, bumpY:.10, armY:-.13, king:.08, upperY:.15, lowerY:-.09, pivotX:.51,
+  hinge:[[-.36,-.08],[-.14,.14],[.08,.36]], shockTop:[.63,.14], shockF:.40, shockDrop:.03, damper:.27, rod:.28, perchTop:.035, perchLow:.13};
+const SUS = SUSPENSION, HALF_TRACK = SUS.track;
+/* 摆臂长度反推：静载时轮心正好落在物理安装点上（等长平行臂在弧线上走，其余高度会内收几厘米）。 */
+const ARM_LEN = (() => { let L = 0.5; for (let i = 0; i < 40; i++) L = (SUS.track - SUS.king - SUS.pivotX) / Math.cos(Math.asin((SUS.rideY - SUS.armY) / L)); return L; })();
+export const ARM_LENGTH = ARM_LEN;
+const COIL_REST = 0.20;                     // 弹簧网格按这个长度建，每帧按实际长度拉伸
 /* 整车等比例缩放。上面的尺寸是设计图（模型本地）单位；MU-7 原尺寸运输构型高 3.27 m，
    超出 ARES 货舱净高 3.09 m，所以整车按 0.9 缩小（高约 2.94 m）。
    模型用 root.scale 缩放；物理里凡是“世界里的长度”都用下面的换算值，保证轮子仍贴地。 */
@@ -201,18 +217,23 @@ function roundedBox(sx, sy, sz, r, seg = 5) {
 }
 
 function buildWheelGeometry() {
+  /* 车轮按 +x 为外侧来建，左侧车轮用 scale.x = −1 镜像。内侧不封口：立柱和轮毂电机伸进轮辋里，
+     转向主销离轮心只有 SUSPENSION.king，转向时轮子几乎原地转。
+     每段是一圈旋转面，轮廓（半径，轴向）按"实体在行进方向左侧"排，法线朝外。 */
   const parts = [];
-  const rim = new THREE.CylinderGeometry(WHEEL_R * 0.985, WHEEL_R * 0.985, WHEEL_W, 30, 1, true);
-  rim.rotateZ(Math.PI / 2); parts.push(rim);
-  for (const s of [-1, 1]) {
-    const disc = new THREE.CircleGeometry(WHEEL_R * 0.985, 30);
-    disc.rotateY(s * Math.PI / 2);
-    disc.translate(s * WHEEL_W / 2, 0, 0);
-    parts.push(disc);
-    const hub = new THREE.CylinderGeometry(0.085, 0.085, 0.10, 14);
-    hub.rotateZ(Math.PI / 2); hub.translate(s * (WHEEL_W / 2 + 0.03), 0, 0);
-    parts.push(hub);
-  }
+  const shell = (r0, a0, r1, a1) => {
+    const g = new THREE.LatheGeometry([new THREE.Vector2(Math.max(r0, 1e-4), a0), new THREE.Vector2(Math.max(r1, 1e-4), a1)], 30);
+    g.rotateZ(-Math.PI / 2);                  // 旋转轴 y → 车轴 x
+    parts.push(g);
+  };
+  const tread = WHEEL_R * 0.985, rim = 0.28, hw = WHEEL_W / 2;
+  shell(0, 0.10, rim, 0.10);                 // 轮辐盘内侧面（朝车内）
+  shell(rim, 0.10, rim, -hw);                // 轮辋内壁
+  shell(rim, -hw, tread, -hw);               // 内侧唇边
+  shell(tread, -hw, tread, hw);              // 胎面
+  shell(tread, hw, 0.085, hw);               // 外侧面
+  shell(0.085, hw, 0.085, hw + 0.08);        // 轮毂盖侧壁
+  shell(0.085, hw + 0.08, 0, hw + 0.08);     // 轮毂盖端面
   // 抓地齿：人字形棘爪。松散风化层里巡视器还能走，全靠这一圈东西
   const N = 22;
   for (let i = 0; i < N; i++) {
@@ -226,9 +247,15 @@ function buildWheelGeometry() {
       parts.push(cleat);
     }
   }
-  const g = mergeGeometries(parts, false);
-  g.computeVertexNormals();
-  return g;
+  return mergeGeometries(parts, false);
+}
+
+/* 减震器弹簧：沿 +y 从 0 到 COIL_REST 的螺旋管，每帧只改 scale.y。 */
+function buildCoilGeometry() {
+  class Helix extends THREE.Curve {
+    getPoint(t, out = new THREE.Vector3()) { const a = t * Math.PI * 2 * 5; return out.set(Math.cos(a) * 0.036, t * COIL_REST, Math.sin(a) * 0.036); }
+  }
+  return new THREE.TubeGeometry(new Helix(), 120, 0.006, 6, false);
 }
 
 /* ============================================================
@@ -520,48 +547,72 @@ export class Rover {
       led.position.set(-0.30 + i * 0.20, 0.845, 0.96); body.add(led); this.leds.push(led);
     }
 
-    /* ---- 摇臂转向架连杆与车轮 ---- */
-    const wheelGeo = buildWheelGeometry();
-    for (const w of this.wheels) {
-      const g = new THREE.Group();
-      const mesh = new THREE.Mesh(wheelGeo, M.tyre);
-      mesh.castShadow = true; mesh.receiveShadow = true;
-      g.add(mesh);
-      w.obj = g; w.hub = mesh;
-      body.add(g);
-      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.14, 12), M.dark);
-      motor.rotation.z = Math.PI / 2;
-      w.motor = motor; g.add(motor);
-    }
-
-    /* ---- 真正把轮子挂在车上的那套连杆 ----
-       每侧一根摇臂，在差速器处铰接到底盘上：一端挑着前轮，另一端挑着
-       转向架，转向架再挑起中轮和后轮。每一根杆件都在每帧按真实关节位置
-       重新拉伸一次，所以悬挂无论走多大行程，轮子看上去都还长在车上 ——
-       画这套连杆的全部意义就在这儿。 */
-    this.links = [];
-    const member = (thick) => {
-      const m = new THREE.Mesh(roundedBox(thick, thick, 1.0, thick * 0.4), M.alu);
-      m.castShadow = true; body.add(m); return m;
+    /* ---- 双 A 臂独立悬挂与车轮（D34） ----
+       车架下每个 A 臂衬套一根吊带，挂着两根前后走向的铰轴；上下 A 臂等长平行，外端球头连立柱，
+       所以立柱永远竖直。立柱带轮毂电机伸进开口轮辋，转向时整个立柱绕两个球头转。
+       减震器下眼在下臂上，上眼挂在纵梁下，从上 A 臂两条腿之间穿过。
+       活动件每帧由 poseSuspension() 按物理算出的轮心高度摆好。 */
+    const wheelGeo = buildWheelGeometry(), coilGeo = buildCoilGeometry();
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const bar = (a, b, r, mat, parent, seg = 10) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, a.distanceTo(b), seg), mat);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(_up, _tmpB.subVectors(b, a).normalize());
+      parent.add(m); return m;
     };
-    for (const side of [-1, 1]) {
-      const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.16, 14), M.dark);
-      pivot.rotation.z = Math.PI / 2;
-      pivot.position.set(side * 0.615, 0.44, 0.16);
-      body.add(pivot);
-      const bogiePin = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.14, 12), M.dark);
-      bogiePin.rotation.z = Math.PI / 2;
-      body.add(bogiePin);
-      this.links.push({
-        side,
-        anchor: new THREE.Vector3(side * 0.70, 0.44, 0.16),
-        pivot, bogiePin,
-        rocker: member(0.085),      // 差速铰点 → 前轮
-        strut: member(0.075),       // 差速铰点 → 转向架销
-        bogieF: member(0.065),      // 转向架销 → 中轮
-        bogieR: member(0.065),      // 转向架销 → 后轮
-        stub: member(0.070)         // 底盘侧面 → 差速铰点
-      });
+    const block = (sx, sy, sz, x, y, z, mat, parent) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.position.set(x, y, z); parent.add(m); return m;
+    };
+    const FRAME_END = 1.10, FRAME_BOTTOM = 0.125;
+    this.links = [];
+    for (const w of this.wheels) {
+      const s = w.side, zc = AXLE_Z[w.axle], [ha, hb] = SUS.hinge[w.axle];
+      const shockZ = zc + 0.7 * (ha + hb) / 2;          // 上 A 臂两腿间隙的中线（穿过处约在臂长 30%）
+
+      /* 固定件：每个衬套一根吊带（车架底 → 下铰轴下方）、伸出车架端头的加强座、减震器上支耳 */
+      const zLo = zc + ha - 0.04, zHi = zc + hb + 0.04, strapBottom = SUS.armY + SUS.lowerY - 0.035;
+      for (const h of [ha, hb]) block(0.022, FRAME_BOTTOM - strapBottom, 0.045, s * 0.478, (FRAME_BOTTOM + strapBottom) / 2, zc + h, M.dark, body);
+      if (zHi > FRAME_END) block(0.125, 0.10, zHi - FRAME_END, s * 0.5275, 0.175, (zHi + FRAME_END) / 2, M.dark, body);
+      if (zLo < -FRAME_END) block(0.125, 0.10, -FRAME_END - zLo, s * 0.5275, 0.175, (zLo - FRAME_END) / 2, M.dark, body);
+      for (const off of [SUS.upperY, SUS.lowerY]) bar(V(s * SUS.pivotX, SUS.armY + off, zc + ha - 0.035), V(s * SUS.pivotX, SUS.armY + off, zc + hb + 0.035), 0.011, M.alu, body);
+      for (const e of [-0.028, 0.028]) block(0.045, 0.07, 0.01, s * SUS.shockTop[0], SUS.shockTop[1] + 0.025, shockZ + e, M.dark, body);
+
+      /* A 臂：组的原点在铰轴中点，绕 z 转 */
+      const arm = (off, r, mat) => {
+        const g = new THREE.Group(); g.position.set(s * SUS.pivotX, SUS.armY + off, zc); body.add(g);
+        const joint = V(s * ARM_LEN, 0, 0);
+        for (const h of [ha, hb]) { bar(V(0, 0, h), joint, r, mat, g); bar(V(0, 0, h - 0.025), V(0, 0, h + 0.025), r + 0.012, M.dark, g, 12); }
+        const k = 0.75; bar(V(s * ARM_LEN * k, 0, ha * (1 - k)), V(s * ARM_LEN * k, 0, hb * (1 - k)), r * 0.8, mat, g);
+        bar(V(s * ARM_LEN, -0.025, 0), V(s * ARM_LEN, 0.025, 0), 0.032, M.dark, g, 12);   // 球头座
+        return g;
+      };
+      const upper = arm(SUS.upperY, 0.018, M.white), lower = arm(SUS.lowerY, 0.022, M.alu);
+      const fx = s * SUS.shockF * ARM_LEN, padZ = (ha + hb) * (1 - SUS.shockF) / 2;
+      block(0.07, 0.018, (hb - ha) * (1 - SUS.shockF) + 0.04, fx, -0.012, padZ, M.alu, lower);
+      for (const e of [-0.022, 0.022]) block(0.03, 0.035, 0.008, fx, -SUS.shockDrop, shockZ - zc + e, M.dark, lower);
+
+      /* 转向节：立柱、球头、轮毂电机；车轮挂在它外侧 king 处，只管转 */
+      const corner = new THREE.Group(); body.add(corner);
+      block(0.05, SUS.upperY - SUS.lowerY + 0.08, 0.09, 0, (SUS.upperY + SUS.lowerY) / 2, 0, M.dark, corner);
+      for (const y of [SUS.upperY, SUS.lowerY]) { const ball = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), M.alu); ball.position.y = y; corner.add(ball); }
+      w.motor = bar(V(s * 0.025, 0, 0), V(s * (SUS.king + 0.10), 0, 0), 0.12, M.dark, corner, 20);
+      const g = new THREE.Group(); g.position.x = s * SUS.king; corner.add(g);
+      const mesh = new THREE.Mesh(wheelGeo, M.tyre); mesh.scale.x = s;
+      g.add(mesh); w.obj = g; w.hub = mesh;
+
+      /* 减震器：组原点在下眼，+y 指向上眼 */
+      const shock = new THREE.Group(); body.add(shock);
+      bar(V(0, 0, -0.02), V(0, 0, 0.02), 0.016, M.dark, shock, 12);
+      bar(V(0, 0.015, 0), V(0, SUS.damper, 0), 0.022, M.dark, shock, 14);
+      bar(V(0, SUS.perchLow - 0.004, 0), V(0, SUS.perchLow + 0.004, 0), 0.046, M.alu, shock, 18);
+      const coil = new THREE.Mesh(coilGeo, M.gold); coil.position.y = SUS.perchLow; shock.add(coil);
+      const rod = new THREE.Group(); shock.add(rod);
+      bar(V(0, -SUS.rod, 0), V(0, -0.01, 0), 0.009, M.alu, rod, 10);
+      bar(V(0, -SUS.perchTop - 0.004, 0), V(0, -SUS.perchTop + 0.004, 0), 0.046, M.dark, rod, 18);
+      bar(V(0, 0, -0.02), V(0, 0, 0.02), 0.016, M.dark, rod, 12);
+
+      w.corner = { side: s, axle: w.axle, corner, upper, lower, shock, rod, coil, shockZ, travel: 0 };
+      this.links.push(w.corner);
     }
 
     /* ---- 瞄准环。挂在场景下而不是车下，这样它才平贴在地面上 ---- */
@@ -647,6 +698,8 @@ export class Rover {
      物理
      ============================================================ */
   step(dt, ctl, terrain) {
+    // dt=0 would divide suspension velocity by zero and turn the whole state into NaN for good.
+    if (!(dt > 0)) return;
     const SUB = 6, h = Math.min(dt, 0.05) / SUB;
     for (let s = 0; s < SUB; s++) this._substep(h, ctl, terrain);
     this.sync();
@@ -874,17 +927,13 @@ export class Rover {
     this.armDeploy += ((this.armOut ? 1 : 0) - this.armDeploy) * Math.min(1, dt * 3.0);
     if (this.armDeploy > 0.02) this.aimPoint();
     for (const w of this.wheels) {
-      // 把轮子位置换算回车身坐标系
+      // 把物理算出的轮心换算回车身坐标系；连杆按它的高度摆
       const local = _p1.copy(w.worldPos).sub(this.pos).applyQuaternion(_q1.copy(q).invert()).divideScalar(ROVER_SCALE);
-      w.obj.position.copy(local);
-      w.obj.rotation.set(0, 0, 0);
-      w.obj.rotateY(w.steer);
-      w.obj.rotateX(w.spin);
-      w.motor.rotation.set(0, 0, Math.PI / 2);
       w.local = (w.local || new THREE.Vector3()).copy(local);
+      w.obj.rotation.x = w.spin;
     }
 
-    this.drawLinks();
+    this.poseSuspension();
 
     // 桅杆跟着操作员的视线转
     this.mast.rotation.y = this.mastYaw;
@@ -938,27 +987,32 @@ export class Rover {
      不这样做的话，停在不平处时悬空的轮子会伸到行程底，整车高度忽大忽小。 */
   stowWheels() {
     for (const w of this.wheels) {
-      const local = new THREE.Vector3(w.side * HALF_TRACK, 0.10 - SUSP_REST + 0.10, AXLE_Z[w.axle]);
-      w.obj.position.copy(local); w.obj.rotation.set(0, 0, 0); w.steer = 0;
-      w.local = (w.local || new THREE.Vector3()).copy(local);
+      w.local = (w.local || new THREE.Vector3()).set(w.side * HALF_TRACK, SUS.rideY, AXLE_Z[w.axle]);
+      w.steer = 0;
     }
-    this.drawLinks();
+    this.poseSuspension();
   }
 
-  /* ---- 在真实关节之间把连杆画出来 ---- */
-  drawLinks() {
-    for (const L of this.links) {
-      const wf = this.wheels.find(w => w.side === L.side && w.axle === 0).local;
-      const wm = this.wheels.find(w => w.side === L.side && w.axle === 1).local;
-      const wr = this.wheels.find(w => w.side === L.side && w.axle === 2).local;
-      // 转向架销悬在后两轮中点的上方
-      _bog.copy(wm).add(wr).multiplyScalar(0.5); _bog.y += 0.30;
-      L.bogiePin.position.copy(_bog);
-      span(L.stub, _tmpA.set(L.side * 0.58, 0.44, 0.16), L.anchor);
-      span(L.rocker, L.anchor, wf);
-      span(L.strut, L.anchor, _bog);
-      span(L.bogieF, _bog, wm);
-      span(L.bogieR, _bog, wr);
+  /* ---- 双 A 臂按轮心高度和转向摆好（D34） ----
+     轮心高度夹在机械行程内；等长平行臂 → 摆角 θ = asin((y − armY) / 臂长)，立柱竖直地沿弧线走。
+     超出机械上限的那部分物理压缩（缓冲块吃掉的冲击）画面上不再往上顶，轮子会略微压进地面。 */
+  poseSuspension() {
+    for (const w of this.wheels) {
+      const L = w.corner, s = w.side, y = clamp(w.local.y, SUS.droopY, SUS.bumpY), th = Math.asin((y - SUS.armY) / ARM_LEN), a = s * th;
+      L.travel = y - SUS.rideY;
+      L.corner.position.set(s * (SUS.pivotX + ARM_LEN * Math.cos(th)), y, AXLE_Z[w.axle]);
+      L.corner.rotation.set(0, w.steer, 0);
+      L.upper.rotation.z = L.lower.rotation.z = a;
+      // 下眼随下臂转；上眼固定在纵梁下
+      const cos = Math.cos(a), sin = Math.sin(a), ex = s * SUS.shockF * ARM_LEN, ey = -SUS.shockDrop;
+      _p2.set(s * SUS.pivotX + ex * cos - ey * sin, SUS.armY + SUS.lowerY + ex * sin + ey * cos, L.shockZ);
+      _tmpB.set(s * SUS.shockTop[0], SUS.shockTop[1], L.shockZ).sub(_p2);
+      const len = _tmpB.length();
+      L.shock.position.copy(_p2);
+      L.shock.quaternion.setFromUnitVectors(_up, _tmpB.divideScalar(len));
+      L.rod.position.y = len;
+      L.coil.scale.y = (len - SUS.perchTop - SUS.perchLow) / COIL_REST;
+      L.shockLength = len;
     }
   }
 }
@@ -974,14 +1028,4 @@ const _p7 = new THREE.Vector3(), _p8 = new THREE.Vector3(), _p9 = new THREE.Vect
 const _p10 = new THREE.Vector3(), _p11 = new THREE.Vector3(), _p12 = new THREE.Vector3();
 const _p13 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
-const _bog = new THREE.Vector3(), _tmpA = new THREE.Vector3(), _tmpB = new THREE.Vector3();
-const _zAxisU = new THREE.Vector3(0, 0, 1);
-
-/** 把一根单位长的 +Z 杆件拉伸旋转，让它正好从 a 连到 b。 */
-function span(mesh, a, b) {
-  mesh.position.set((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5);
-  _tmpB.subVectors(b, a);
-  const len = _tmpB.length();
-  mesh.scale.set(1, 1, Math.max(len, 0.02));
-  if (len > 1e-5) mesh.quaternion.setFromUnitVectors(_zAxisU, _tmpB.divideScalar(len));
-}
+const _tmpB = new THREE.Vector3();

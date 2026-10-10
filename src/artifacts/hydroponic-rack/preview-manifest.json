@@ -1,0 +1,31 @@
+{
+  "schema": "threejs-artifact-preview@1",
+  "artifact": "hydroponic-rack",
+  "artifactVersion": "1.0.0",
+  "renderer": {
+    "three": "r160",
+    "colorSpace": "SRGBColorSpace",
+    "toneMapping": "NoToneMapping",
+    "pixelRatio": 1,
+    "postProcessing": false
+  },
+  "targetViewport": [1200, 1200],
+  "camera": {
+    "fovDeg": 35,
+    "position": [5.9, 4.2, 7.2],
+    "target": [0, 1.03, 0],
+    "heroYawDeg": 35,
+    "heroPitchDeg": 18,
+    "detailFocus": "tray.0",
+    "grazingAzimuthDeg": 60
+  },
+  "lod": 0,
+  "states": ["installed", "filled", "growing", "paused", "verified"],
+  "interactivePreview": "../../../tools/hydroponic-rack-preview.html",
+  "images": {
+    "hero": [],
+    "diagnostics": [],
+    "articulation": "notApplicable"
+  },
+  "visualReview": "pending: local preview server could not bind in the workspace sandbox"
+}

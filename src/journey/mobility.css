@@ -65,6 +65,7 @@
 .mobility-unified .journey-save{left:20px;bottom:4px;font-size:9px}
 .mobility-unified .mobility-guidance{top:96px;left:auto;right:24px;max-width:270px;border-radius:8px}
 .mobility-unified .journey-toast,.mobility-unified .mobility-toast{top:85px;bottom:auto;z-index:65}
+.mobility-unified[data-mobility-mode=light] .builder,.mobility-unified[data-mobility-mode=light] .interface .views,
 .mobility-unified[data-mobility-mode=carrier] .builder,.mobility-unified[data-mobility-mode=carrier] .interface .views,
 .mobility-unified[data-mobility-mode=flight] .builder,.mobility-unified[data-mobility-mode=remote] .builder{display:none!important}
 .mobility-unified .flight-touch{left:24px;bottom:290px;transform:none;max-width:230px;flex-wrap:wrap}
@@ -160,3 +161,6 @@ body[data-mobility-mode="remote"] .vehicle-console>.console-help[open]{position:
 .cd-detail{width:min(600px,calc(100vw - 24px));max-height:75dvh;padding:22px;background:#08131b;color:#c7d2dc;border:1px solid #256273;font:13px/1.7 monospace;box-sizing:border-box}
 .cd-detail header{display:flex;justify-content:space-between;gap:18px;align-items:center}.cd-detail h2{font-size:18px}.cd-detail button{background:#102b36;color:#bdeff6;border:1px solid #398da0;padding:10px;cursor:pointer}.cd-detail::backdrop{background:#02090dcc}
 @media(max-width:760px){.command-deck-active .console-mission{bottom:250px;max-height:48dvh;left:10px;right:10px;width:auto}.command-deck-active .mobility-guidance{top:105px;max-width:calc(100vw - 24px);font-size:10px}.command-deck-active .eva-touch,.command-deck-active .flight-touch{bottom:270px}}
+
+/* Long energy readouts keep touch users within reach of the close control. */
+.cd-detail header{position:sticky;top:0;z-index:1;background:#08131b}
