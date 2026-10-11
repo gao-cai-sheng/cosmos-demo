@@ -10,7 +10,7 @@ export function mountResearch({mobility,getJourney,state,save,notify}){
   for(const d of [24,36,48,60])for(let i=0;i<8;i++){const a=i*Math.PI/4,p={x:base.x+Math.cos(a)*d,z:base.z+Math.sin(a)*d};if(clear(p))return p;}
   return null;
  }
- function context(){return {eligible:!!getJourney()?.cards?.done?.['A-end'],frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,player:mobility.astronaut.position,lab:mobility.refuge?.stationPoint('lab'),target:candidate()};}
+ function context(){return {eligible:!!state().nursery.inspected,frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,player:mobility.astronaut.position,lab:mobility.refuge?.stationPoint('lab'),target:candidate()};}
  function action(type){if(type==='inspectResearch')return open();const r=researchAction(state(),type,context());if(r.changed)save(r.state);notify(r.reason||(r.changed?'科研记录已保存。':'本步骤已完成，不重复分析。'));return r.ok;}
  function close(){if(!modal)return;modal.remove();modal=null;mobility.setOverlay(false);removeEventListener('keydown',key,true);}
  function key(e){if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}}

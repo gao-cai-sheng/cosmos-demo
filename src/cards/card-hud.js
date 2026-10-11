@@ -13,7 +13,7 @@ const BUST = .36;   // 半身小窗露出全身立绘从头顶往下多大一截
 export const assetUrl = path => new URL('../../assets/' + path, import.meta.url).href;
 
 /** onAction(i)：点了卡上第 i 个按钮。onMute：点了喇叭，返回新的「是否静音」。 */
-export function mountCardHud({ onAction = () => {}, onMute = () => false, muted = false } = {}) {
+export function mountCardHud({ onSelect = () => {}, onDefer = () => {}, onAction = () => {}, onMute = () => false, muted = false } = {}) {
   if (!document.querySelector('link[data-cards-css]')) {
     const link = document.createElement('link'); link.rel = 'stylesheet'; link.dataset.cardsCss = '';
     link.href = new URL('./cards.css', import.meta.url).href; document.head.append(link);
@@ -26,6 +26,8 @@ export function mountCardHud({ onAction = () => {}, onMute = () => false, muted 
   const acts = el('div', 'ec-acts'), reasons = el('p','ec-action-reason'); reasons.hidden=true;
   reasons.id='erin-action-reason';
   const body = el('div', 'ec-body'); body.append(head, keys, way, acts, reasons);
+  const later=el('button','ec-later','稍后再做');later.type='button';later.onclick=onDefer;body.append(later);
+  const tasks=el('select','ec-tasks');tasks.setAttribute('aria-label','选择待办任务');tasks.onchange=()=>onSelect(tasks.value);body.append(tasks);let taskSignature='';
   const say = el('p', 'ec-say'), mute = el('button', 'ec-mute'); mute.type = 'button';
   const tick = el('div', 'ec-tick', '✓'); tick.setAttribute('aria-hidden', 'true');
   card.append(erin, body, say, mute, tick);
@@ -89,6 +91,7 @@ export function mountCardHud({ onAction = () => {}, onMute = () => false, muted 
       arrow.style.transform = `rotate(${spin}rad)`;
       meters.textContent = v.meters < 1000 ? `${Math.round(v.meters)} 米` : `${(v.meters / 1000).toFixed(1)} 公里`;
     },
+    setTasks(list,current){const signature=list.map(c=>c.id).join(',');if(signature!==taskSignature){tasks.replaceChildren(...list.map(c=>{const o=el('option','',c.title);o.value=c.id;return o;}));taskSignature=signature;}tasks.value=current||'';},
     setActions,
     /** 只有一个按钮的卡的老写法。 */
     setAction(ready, visible = true, index = 0) { const b = acts.children[index]; if (b) { b.hidden = !visible; b.disabled = !ready || card.classList.contains('is-done'); } },

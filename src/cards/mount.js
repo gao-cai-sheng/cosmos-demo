@@ -50,17 +50,22 @@ export function mountCards({ scene, camera, mobility, heightAt, surveyPoints = [
   /** 艾琳说一句不在卡上的话（没拍清的原因、路线算不出来的原因）。 */
   function tell(text) { if (!text) return; hud.say(text); voice.speak(text); }
   function run(card, action) {
+    if(action.run==='viewBrief')return openBig(card);
     const fn = ACTIONS[action.run]; if (!fn) return;
     Promise.resolve(fn(seen, card)).then(reply => { if (typeof reply === 'string') tell(reply); })
       .catch(error => console.error('[cards action]', error));
   }
 
+  function defer(){briefing=null;mobility.setOverlay(false);voice.stop();director.defer();shown=null;lastTick=-1e9;holdUntil=0;}
   const hud = mountCardHud({
+    onDefer:defer,
+    onSelect:id=>{director.select(id);shown=null;lastTick=-1e9;holdUntil=0;},
     muted: !getSettings().voice,
     onMute: () => { const on = !getSettings().voice; updateSettings({ voice: on }); if (!on) voice.stop(); return !on; },
     onAction: i => {
       if(mobility.frozen || briefing || relicArchiveOpen())return;
       const face = shown, card = director.current, action = face && actionsOf(face)[i];
+      if(face?.big){openBig(card);return;}
       if (!action || !card || !seen) return;
       seen = world.read();
       if ((action.ready && !action.ready(seen)) || (action.visible && !action.visible(seen))) return;
@@ -114,15 +119,15 @@ export function mountCards({ scene, camera, mobility, heightAt, surveyPoints = [
   function openBig(card) {
     if (briefing) return;
     mobility.setOverlay(true);
-    briefing = openBriefing({ card: { ...card, lines: card.lines.map(line => ({ ...line, say: playerLine(line.say, getJourney()?.player) })) }, speak, onNext: () => sfx.play('brief-next'), onAccept: () => {
+    briefing = openBriefing({ card: { ...card, lines: card.lines.map(line => ({ ...line, say: playerLine(line.say, getJourney()?.player) })) }, speak, onNext: () => sfx.play('brief-next'), onDefer:defer, onAccept: () => {
       briefing = null; sfx.play('accept'); mobility.setOverlay(false); voice.stop();
       director.signal('accept'); lastTick = -1e9;
     } });
   }
   function present(card, now) {
     shown = card; shownAt = now; spoken = false; lastNudge = now;
-    hud.show(card); beacon.set(null);
-    if (card?.big) openBig(card); else if (card) sfx.play('card-new');
+    hud.show(card?.big?{...card,big:false,keys:[],action:{label:'听任务简报',run:'viewBrief'},say:card.lines[0]?.say}:card); beacon.set(null);
+    if(card)sfx.play('card-new');
   }
 
   return {
@@ -153,13 +158,17 @@ export function mountCards({ scene, camera, mobility, heightAt, surveyPoints = [
         return;
       }
       const card = director.current;
+      hud.setTasks(director.pending,card?.id);
       if (card?.id !== pickedFor) picked = pickedFor = null;
       // 这张卡要人在哪（车上、船上、地上）。没满足就先出前提小卡，满足了卡自己回来。
       const goal = card?.goal?.(w) || null;
-      const need = card && !card.big ? needFor(card.want?.(w, picked) ?? null, w, goal) : null;
+      const need = card?.requiresHome && !w.homeScene
+        ? (needFor('ship',w)||NEEDS.returnHome)
+        : card && !card.big ? needFor(card.want?.(w, picked) ?? null, w, goal) : null;
       const face = need || card;
       if (face !== shown) present(face, now);
-      if (!face || face.big) return;
+      if(!face)return;
+      if(face.big){hud.say(playerLine(face.lines[0]?.say||'',getJourney()?.player));hud.setActions([{ready:true,visible:true}]);return;}
       const line = sayOf(face, w);
       if (!spoken && now - shownAt >= SPEAK_AFTER_MS) { spoken = true; hud.say(line); speak(line); }
       if (face.liveSay && spoken) hud.say(line);
@@ -181,7 +190,7 @@ export function mountCards({ scene, camera, mobility, heightAt, surveyPoints = [
     dispose() {
       removeEventListener('pointerdown', firstGesture, true); removeEventListener('keydown', firstGesture, true);
       removeEventListener('relic:photo', onPhoto);
-      briefing?.close(); voice.stop(); hud.dispose(); beacon.dispose();
+      briefing?.dismiss(); voice.stop(); hud.dispose(); beacon.dispose();
     },
   };
 }

@@ -17,12 +17,12 @@ export function mountWaterSupply({scene,mobility,heightAt,getJourney,state,save,
  const mode=()=>mobility.carrier.active?'carrier':mobility.flyer.active?'flight':mobility.remote?'remote':mobility.walking?'walk':'overview';
  function context(){const s=state(),c=mobility.carrier,r=mobility.refuge;
   const home=s.water.home||(!r?.inside&&r?.ready?supportHome(r.target()):null);
-  return {eligible:!!getJourney()?.cards?.done?.['7-end'],mode:mode(),frozen:mobility.frozen||!!modal,inHome:!!r?.inside,player:mobility.astronaut.position,
+  return {eligible:!!state().analysis?.read,mode:mode(),frozen:mobility.frozen||!!modal,inHome:!!r?.inside,player:mobility.astronaut.position,
    lab:r?.stationPoint('lab'),home,carrier:c.position,carrierReady:c.ready&&mobility.roverStowed!=='ship',speed:c.speed,roverLoaded:c.loaded,
    samples:s.samples,powerOnline:s.power.online,energy:s.power.energy,...sitePlan};
  }
  const obstacle=(x,z)=>mobility.refuge?.blocked(x,z)||mobility.flyer.asset.contains(x,z,6,7);
- function supportHome(door){const clear=p=>!obstacle(p.x,p.z)&&mobility.carrier.canTraverse(p.x,p.z);const preferred=pickHomePark(door,mobility.flyer.position,(x,z)=>clear({x,z}));if(clear(preferred))return preferred;for(const d of [36,50,70,95,120])for(let i=0;i<16;i++){const a=i*Math.PI/8,p={x:door.x+Math.cos(a)*d,z:door.z+Math.sin(a)*d};if(clear(p))return p;}return null;}
+ function supportHome(door){const clear=p=>!!p&&!obstacle(p.x,p.z)&&mobility.carrier.canTraverse(p.x,p.z);const preferred=pickHomePark(door,mobility.flyer.position,(x,z)=>clear({x,z}));if(clear(preferred))return preferred;for(const d of [36,50,70,95,120])for(let i=0;i<16;i++){const a=i*Math.PI/8,p={x:door.x+Math.cos(a)*d,z:door.z+Math.sin(a)*d};if(clear(p))return p;}return null;}
 
  function route(start,goal){return planTerrainRoute({start,goal,heightAt:floor,blocked:obstacle,canTraverse:(x,z,yaw)=>mobility.carrier.canTraverse(x,z,yaw),sampleStep:.5,maxSlope:22,maxSpan:5000});}
  async function plan(){

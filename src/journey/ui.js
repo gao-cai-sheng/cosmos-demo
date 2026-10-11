@@ -99,7 +99,7 @@ export function mountJourneyUI({ scene, title, onPause = () => {} }) {
   menu.addEventListener('click', pauseMenu);
   dialog.addEventListener('cancel', event => { event.preventDefault(); if (!briefOpen) closeDialog(); });
   addEventListener('keydown', event => {
-    if (document.querySelector('dialog[open]:not(.journey-dialog)')) return;
+    if (document.querySelector('.erin-briefing,dialog[open]:not(.journey-dialog)')) return;
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopImmediatePropagation();
       const powerDetails = document.querySelector('.power-ui .pu-summary[aria-expanded="true"]');

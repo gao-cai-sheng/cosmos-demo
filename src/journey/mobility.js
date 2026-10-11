@@ -201,7 +201,7 @@ export function mountMobility(options) {
   function leaveCarrier(){
     if(paused||mapOpen)return;
     if(Math.abs(carrier.speed)>.4){notify('请按空格停稳，再下车。');return;}
-    const p=findExit({...carrier.position,heading:carrier.heading},7,heightAt,walkBlocked);
+    const p=findExit({...carrier.position,heading:carrier.heading},7,walkFloor,walkBlocked);
     if(!p){notify('车旁没有安全落脚点，请驶至开阔地。');return;}
     if(carrier.leave()){astronaut.start(p);operatorPlaced=true;}
   }
@@ -808,7 +808,7 @@ export function mountMobility(options) {
         else boardRover();
       }else walk();
     }
-    if(e.code==='Escape'&&!document.querySelector('.journey-menu')&&!mapOpen&&!pauseDialog.open){e.preventDefault();pauseButton.click();}
+    if(e.code==='Escape'&&!document.querySelector('.erin-briefing')&&!document.querySelector('.journey-menu')&&!mapOpen&&!pauseDialog.open){e.preventDefault();pauseButton.click();}
     if(e.code==='KeyM'){e.preventDefault();mapOpen?close():open();}
   });
   addEventListener('resize',()=>drawMap());
@@ -907,7 +907,7 @@ export function mountMobility(options) {
   }
   function updateSupport(){const r=currentRescue();if(r?.status==='landed'&&flyer.active&&flyer.grounded&&r.target&&distance(flyer.position,r.target)<3){writeSupport({rescue:{...r,status:'aboard'}});supportUI.say('人员已登船。原车与货物位置保留；返航或收车请继续操作NX07。');}}
   const supportUI=mountSupportUI({
-    read:()=>{const saved=readSupport(),water=options.waterSupport?.();return {water:water?.snapshot().state,waterAvailable:!!water&&!!getJourney()?.cards?.done?.['7-end']&&astronaut.active&&!refuge?.inside&&!!getJourney()?.mainlineSurvival?.power?.online,rescue:currentRescue(),crew:saved.crew,rescueFlying:flyer.summoning,canRescue:shipReady&&astronaut.active&&!refuge?.inside&&!carrier.active&&!light?.active&&!rover.driving()};},
+    read:()=>{const saved=readSupport(),water=options.waterSupport?.();return {water:water?.snapshot().state,waterAvailable:!!water&&!!getJourney()?.mainlineSurvival?.analysis?.read&&astronaut.active&&!refuge?.inside&&!!getJourney()?.mainlineSurvival?.power?.online,rescue:currentRescue(),crew:saved.crew,rescueFlying:flyer.summoning,canRescue:shipReady&&astronaut.active&&!refuge?.inside&&!carrier.active&&!light?.active&&!rover.driving()};},
     setOverlay,notify,requestWater:async()=>{const water=options.waterSupport?.(),ok=await water?.action('requestWater');if(ok)sound.radio();return ok;},requestRescue,
     requestCrew:id=>{const saved=readSupport();if(!saved.crew[id])writeSupport({crew:{...saved.crew,[id]:{at:Date.now(),status:'pending'}}});},
     locate:p=>{open();select({...p,...localToGeo(p,site),local:true,type:'支援定位'});},

@@ -11,6 +11,7 @@ export const FAR = 600;
 
 const off = { icon: 'steps', keys: ['F'], pose: 'approve', target: () => null };
 export const NEEDS = Object.freeze({
+  returnHome:{id:'need-returnhome',title:'返回营地',icon:'home',keys:[],pose:'pointing-tablet',say:'这里不是营地。返回首次着陆点，再放能源设备。',action:{label:'返回营地继续',run:'goHome',ready:w=>w.mode==='flight'&&!w.enRoute,visible:w=>!w.enRoute},target:w=>w.boardAt},
   unloadCar:{id:'need-dropcar',title:'放下大车',icon:'truck',keys:[],pose:'pointing-tablet',say:'大车还在飞船里。先把它放下来。',action:{label:'放下大车',run:'unloadShip'},target:w=>w.ship},
   callCar:{id:'need-callcar',title:'叫大车来',icon:'truck',keys:[],pose:'pointing-tablet',say:'大车离得远。先叫它过来。',action:{label:'叫大车来',run:'summonCarrier',ready:w=>w.mode==='walk'&&!w.inHome},target:w=>w.carrier},
   endRemote: { id: 'need-walk', title: '收工', icon: 'steps', keys: [], pose: 'approve', say: '先让小车歇着。',

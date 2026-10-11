@@ -4,7 +4,7 @@ const labels={checkNursery:'检查育苗盒',fillNursery:'转入0.40 L净水',so
 export function mountNursery({mobility,getJourney,state,save,replace,notify,onPower=()=>{}}){
  let modal=null,reason='',clock=0;
  const point=()=>mobility.refuge?.stationPoint('garden');
- function context(){const s=state(),p=mobility.astronaut.position,q=point();return {eligible:!!getJourney()?.cards?.done?.['W-end'],frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,near:!!q&&Math.hypot(p.x-q.x,p.z-q.z)<=2.6,distance:q?Math.hypot(p.x-q.x,p.z-q.z):null,waterStored:s.water.stored,cleanL:s.water.cleanL,online:s.power.online,energy:s.power.energy};}
+ function context(){const s=state(),p=mobility.astronaut.position,q=point();return {eligible:!!s.water.stored,frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,near:!!q&&Math.hypot(p.x-q.x,p.z-q.z)<=2.6,distance:q?Math.hypot(p.x-q.x,p.z-q.z):null,waterStored:s.water.stored,cleanL:s.water.cleanL,online:s.power.online,energy:s.power.energy};}
  function close(){if(!modal)return;modal.remove();modal=null;mobility.setOverlay(false);removeEventListener('keydown',key,true);}
  function key(e){if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}}
  function action(type){if(type==='inspectNursery')return open();const s=state(),r=nurseryAction(s.nursery,type,context());reason=r.reason;

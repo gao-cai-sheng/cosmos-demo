@@ -2,7 +2,7 @@ import {nurseryView} from '../journey/nursery-view.js';
 const n=w=>w.survival?.nursery;
 const target=w=>w.inHome?w.survival?.targets?.garden:w.door;
 const step=(id,title,run,done,say)=>({id,required:true,title,icon:'nursery',keys:['F'],pose:'pointing-tablet',want:()=> 'station',target,say,
- action:{label:title,run,ready:w=>w.mode==='walk'&&w.inHome},done});
+ action:{label:title,run,ready:w=>w.mode==='walk'&&w.inHome},recordAhead:true,done});
 export const NURSERY_ACTIONS=['checkNursery','fillNursery','sowNursery','verifyNursery','inspectNursery'];
 export const NURSERY_DECK=[
  {id:'A-0',required:true,big:true,available:w=>!!w.homeScene&&!!n(w),title:'先育一小批苗',icon:'nursery',event:'accept',lines:[
@@ -15,7 +15,7 @@ export const NURSERY_DECK=[
  step('A-3','播下两粒','sowNursery',w=>!!n(w)?.sown,'电量够了。按 F 播两粒，保留十粒备用种子。'),
  {id:'A-4',required:true,title:'等待幼苗',icon:'nursery',liveSay:true,keys:[],pose:'thinking',target,
   say:w=>{const v=nurseryView(n(w),{online:w.survival?.power?.online,energy:w.survival?.power?.energy});return v.stage==='low'||v.stage==='offline'?v.hint:`培养 ${Math.floor(v.progress*100)}%，还需 ${v.remaining} 秒有效培养。可以离开，完成后回来验收。`;},
-  action:{label:'查看育苗账本',run:'inspectNursery',ready:()=>true},done:w=>(n(w)?.elapsed||0)>=120},
+  action:{label:'查看育苗账本',run:'inspectNursery',ready:()=>true},recordAhead:true,done:w=>(n(w)?.elapsed||0)>=120},
  step('A-5','验收幼苗','verifyNursery',w=>!!n(w)?.inspected,'回到育苗架按 F，记录这一批幼苗。现在还不能收获。'),
  {id:'A-end',required:true,big:true,title:'第一批幼苗',icon:'nursery',event:'accept',button:'好',lines:[
   {pose:'approve',say:'两粒种子成了幼苗。这是一次小试验，还不是食物自给。'},

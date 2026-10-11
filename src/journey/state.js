@@ -40,7 +40,7 @@ function normalizeCards(raw) {
   for (const [id, v] of Object.entries(raw?.done || {})) {
     if (/^[0-9A-Za-z-]{1,12}$/.test(id) && Number.isFinite(v?.at)) done[id] = { at: v.at };
   }
-  return { done };
+  return { done, focus:typeof raw?.focus==='string'&&/^[0-9A-Za-z-]{1,12}$/.test(raw.focus)?raw.focus:null, deferred: [...new Set((Array.isArray(raw?.deferred)?raw.deferred:[]).filter(id=>typeof id==='string'&&/^[0-9A-Za-z-]{1,12}$/.test(id)))] };
 }
 
 export function normalizeJourney(raw) {

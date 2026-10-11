@@ -18,7 +18,7 @@ export function createActions(mobility, survival, { relicGeo = () => null, home 
     driveWater:(w,card)=>{const p=w.survival?.waterTargets?.[card.waterTarget];return p?mobility.driveTo({...p,name:'水务任务点'}):'没有可达的水务目标。';},
     inspectWater:()=>survival?.water?.open(),
     summonCarrier:()=>mobility.summon('carrier'),
-    ...Object.fromEntries(Object.entries({releasePower:'release',selectPower:'select',installPower:'install',expandSolar:'expand-solar',connectSolar:'solar',connectBus:'bus',commissionPower:'commission',eatMeal:'meal',sleepNight:'sleep',}).map(([name,type])=>[name,()=>survival?.action(type)])),
+    ...Object.fromEntries(Object.entries({releasePower:'release',selectPower:'select',installPower:'install',expandSolar:'expand-solar',connectSolar:'solar',connectBus:'bus',commissionPower:'commission',eatMeal:'meal',sleepNight:'sleep',}).map(([name,type])=>[name,()=>survival?survival.action(type):'当前不在首次着陆营地；先返回营地，再操作能源设备。'])),
     archiveSample:()=>mobility.operations?.action('unload'),
     readAnalysis:()=>survival?.openStation('lab'),
     unloadShip: () => mobility.unloadShip(),                                  // 已经卸过会自己什么都不做

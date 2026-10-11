@@ -3,7 +3,7 @@ import {applyMainlineSurvivalAction} from './mainline-survival.js';
 const maintenance={isolateResearchSolar:'isolate-solar',cleanResearchSolar:'clean-solar',reconnectResearchSolar:'reconnect-solar',cancelResearchSolar:'cancel-solar-job'};
 export function mountSolarResearch({mobility,getJourney,state,save,notify,light,onSolarAction}){
  let modal=null;
- const context=()=>{const s=state(),p=mobility.astronaut.position,b=s.power.site;return {eligible:!!getJourney()?.cards?.done?.['P-end'],frozen:mobility.frozen,light:light(),near:!!b&&mobility.walking&&!mobility.refuge?.inside&&Math.hypot(p.x-b.x,p.z-(b.z-1.5))<=3};};
+ const context=()=>{const s=state(),p=mobility.astronaut.position,b=s.power.site;return {eligible:!!s.powerResearch.read,frozen:mobility.frozen,light:light(),near:!!b&&mobility.walking&&!mobility.refuge?.inside&&Math.hypot(p.x-b.x,p.z-(b.z-1.5))<=3};};
  function check(type,c=context()){
   if(!maintenance[type])return solarResearchAction(state(),type,c);
   const s=state(),r=solarResearchSummary(s.solarResearch),fail=reason=>({ok:false,reason,changed:false});

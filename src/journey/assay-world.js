@@ -1,7 +1,7 @@
 import {ASSAY,assayAction,tickAssay,assaySummary,assaySamples} from './assay.js';
 export function mountAssay({mobility,getJourney,state,save,replace,notify,onResearch}){
  let modal=null,clock=0;
- const context=()=>({eligible:!!getJourney()?.cards?.done?.['G-end'],frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,player:mobility.astronaut.position,lab:mobility.refuge?.stationPoint('lab')});
+ const context=()=>({eligible:!!state().research.read,frozen:mobility.frozen,mode:mobility.walking?'walk':'other',inHome:!!mobility.refuge?.inside,player:mobility.astronaut.position,lab:mobility.refuge?.stationPoint('lab')});
  function close(){modal?.remove();modal=null;mobility.setOverlay(false);removeEventListener('keydown',key,true);}
  function key(e){if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}}
  function action(name){if(name==='inspectAssay')return open();const r=assayAction(state(),name,context());if(r.changed)save(r.state);notify(r.reason||(r.changed?'实验已登记；关闭面板后设备运行。':'本步骤已登记。'));return r.ok;}

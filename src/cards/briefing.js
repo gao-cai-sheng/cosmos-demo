@@ -3,7 +3,7 @@
 import { poseSrc } from '../relics/brief/poses.js';
 
 /** card 是 deck.js 里 big: true 的卡。speak(text) 出声。每翻一句调 onNext；讲完点「接受任务」后调 onAccept。 */
-export function openBriefing({ card, speak = () => {}, onNext = () => {}, onAccept = () => {} }) {
+export function openBriefing({ card, speak = () => {}, onNext = () => {}, onDefer = () => {}, onAccept = () => {} }) {
   const root = document.createElement('div'); root.className = 'erin-briefing';
   root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', card.title);
   root.innerHTML = '<img class="ebr-erin" alt="艾琳"><div class="ebr-box"><small></small><p></p><button type="button"></button></div>';
@@ -23,18 +23,19 @@ export function openBriefing({ card, speak = () => {}, onNext = () => {}, onAcce
     button.classList.toggle('primary', last);
     speak(line.say);
   }
-  function close() {
+  function close(accepted=true) {
     if (closed) return;
     closed = true;
     removeEventListener('keydown', key, true); removeEventListener('keyup', swallow, true);
-    root.remove(); onAccept();
+    root.remove(); if(accepted)onAccept();else onDefer();
   }
   // 空格 / 回车翻句。抢在游戏前面拿走这两个键，不然人会在舱里跳一下。
   const mine = e => e.code === 'Space' || e.code === 'Enter';
-  const key = e => { if (!mine(e)) return; e.preventDefault(); e.stopPropagation(); if (!e.repeat) step(); };
+  const key = e => { if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close(false);return;}if (!mine(e)) return; e.preventDefault(); e.stopPropagation(); if (!e.repeat) step(); };
   const swallow = e => { if (mine(e)) { e.preventDefault(); e.stopPropagation(); } };
   button.onclick = step;
+  const later=document.createElement('button');later.type='button';later.textContent='稍后再做';later.onclick=()=>close(false);root.querySelector('.ebr-box').append(later);
   addEventListener('keydown', key, true); addEventListener('keyup', swallow, true);
   document.body.append(root); step();
-  return { get index() { return index; }, get closed() { return closed; }, step, close };
+  return { get index() { return index; }, get closed() { return closed; }, step, close, dismiss:()=>close(false) };
 }

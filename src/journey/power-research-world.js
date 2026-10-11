@@ -1,7 +1,7 @@
 import {powerResearchAction,normalizePowerResearch} from './power-research.js';
 export function mountPowerResearch({mobility,getJourney,state,save,notify,idle}){
  let modal=null;
- const context=()=>{const s=state(),p=mobility.astronaut.position,b=s.power.site;return {eligible:!!getJourney()?.cards?.done?.['H-end'],frozen:mobility.frozen,idle:idle(),near:!!b&&mobility.walking&&!mobility.refuge?.inside&&Math.hypot(p.x-(b.x+6),p.z-(b.z+10))<=3};};
+ const context=()=>{const s=state(),p=mobility.astronaut.position,b=s.power.site;return {eligible:!!s.assay.read,frozen:mobility.frozen,idle:idle(),near:!!b&&mobility.walking&&!mobility.refuge?.inside&&Math.hypot(p.x-(b.x+6),p.z-(b.z+10))<=3};};
  function close(){modal?.remove();modal=null;mobility.setOverlay(false);removeEventListener('keydown',key,true);}
  function key(e){if(e.code==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();}}
  function action(type){if(type==='inspectPowerResearch')return open();const r=powerResearchAction(state(),type,context());if(r.changed)save(r.state);notify(r.reason||(r.changed?'供电科研记录已保存。':'记录已经启动。'));return r.ok;}
