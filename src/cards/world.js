@@ -10,12 +10,13 @@ export function pickFirstStep(player, door, step = 10) {
   return { x: player.x + dx / d * s, z: player.z + dz / d * s };
 }
 
-/** 「开回家」停在哪：从家门口朝飞船退出去，第一个车能停的点；都不行就用最远的那个。 */
+/** 「开回家」停在哪：从家门口朝飞船退出去，第一个车能停的点；没有可停车点时不生成虚假目标。 */
 export function pickHomePark(door, ship, canPark = () => true, steps = [30, 36, 42, 50]) {
   if (!door || !ship) return null;
   const dx = ship.x - door.x, dz = ship.z - door.z, d = Math.hypot(dx, dz) || 1;
   const at = s => ({ x: door.x + dx / d * s, z: door.z + dz / d * s });
-  return at(steps.find(s => { const p = at(s); return canPark(p.x, p.z); }) ?? steps.at(-1));
+  const step=steps.find(s => { const p = at(s); return canPark(p.x, p.z); });
+  return step==null?null:at(step);
 }
 
 /** mobility 是 src/journey/mobility.js 的返回值；surveyPoints 是地表场景的三个勘测信标 [{id,x,z}]。 */
@@ -38,7 +39,11 @@ export function createWorld({ mobility, getJourney, surveyPoints = [], survival,
       // 人在舱外时 target() 是门口；在舱里时是气闸里侧。两种情况卡片都叫它「门」。
       const door = r?.ready ? xz(r.target()) : null;
       if (!spots.firstStep && mode === 'walk' && !inHome) spots.firstStep = pickFirstStep(player, door);
-      if (!spots.homePark && door && ship && !inHome) spots.homePark = pickHomePark(door, ship, (x, z) => c.canTraverse?.(x, z) ?? true);
+      if (door && ship && !inHome) {
+        const canPark=(x,z,yaw=r?.heading)=>!r?.outsideBlocked?.(x,z)&&(c.canTraverse?.(x,z,yaw)??true);
+        if (!spots.homePark || !canPark(spots.homePark.x,spots.homePark.z))
+          spots.homePark=r.parkingPoint?r.parkingPoint(canPark):pickHomePark(door,ship,canPark);
+      }
       if (!spots.comms && r?.ready) spots.comms = xz(r.stationPoint?.('comms'));
       const relics = j?.relics;
       const shipGrounded = !!f.grounded;

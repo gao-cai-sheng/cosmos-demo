@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {createSupplyDrop} from './supply-drop-model.js';
 import {refugeCycleFrame} from './refuge-cycle.js';
-import {HOME_SITE} from './outpost-layout.js';
+import {HOME_SITE,SOCKETS} from './outpost-layout.js';
 import {airlockReach} from './outpost-interior-layout.js';
 
 // Where the outpost stands at the first landing site. The anchor is the ship-side edge of its graded
@@ -50,6 +50,14 @@ export function createSurfaceRefuge({scene,camera,heightAt,saveKey,arriving=fals
     if(!inside)return Infinity;
     const p=local(x,z),h=interior.ceilingAtLocal(p.x,p.z);
     return Number.isFinite(h)?position.y+h:Infinity;
+  }
+  // Vehicle parking stays in front of the entrance, beyond the ramp toe.
+  function parkingPoint(canPark=()=>true){
+    for(const dz of [0,6,12])for(const dx of [0,-12,12]){
+      const p=point({x:SOCKETS.approach.x+dx,z:SOCKETS.approach.z+dz});
+      if(!outsideBlocked(p.x,p.z)&&canPark(p.x,p.z,heading))return p;
+    }
+    return null;
   }
   function target(){return point(inside?layout.inside:layout.entry);}
   /** 玩家此刻在哪个舱段，给 HUD 用；不在舱内返回 null。 */
@@ -120,7 +128,7 @@ export function createSurfaceRefuge({scene,camera,heightAt,saveKey,arriving=fals
   }
   /** 某个工位的站位（世界坐标），不管人在不在舱里；任务卡的指路要用（D70）。 */
   function stationPoint(id){const s=interior.stations.find(q=>q.id===id);return s?point(s):null;}
-  return {drop,interior,position,heading,layout,nearestStation,stationPoint,area,blocked,outsideBlocked,onPad,floor,ceiling,target,distance,enterOrExit,update,rest,
+  return {drop,interior,position,heading,layout,nearestStation,stationPoint,area,blocked,outsideBlocked,onPad,floor,ceiling,target,parkingPoint,distance,enterOrExit,update,rest,
     setPower(on){powered=!!on;interior.setLit((inside||!!cycle)&&powered);},
     get inside(){return inside;},get resting(){return resting;},get busy(){return !!cycle;},get ready(){return ready;},
     get label(){return cycle?.label||(resting?'舱内休息 · 双门锁闭':inside?'舱内环境稳定 · 双门锁闭':'密闭生活舱 · 气闸待机');},

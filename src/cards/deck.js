@@ -102,7 +102,7 @@ export const DECK = Object.freeze([
     say: '大车靠电池行驶。回船或营地能充电。走到车旁边，按 F 上车。',
     target: w => w.carrier, done: w => w.mode === 'carrier' },
   { id: '1-4', title: '开回家', icon: 'home', keys: ['W', 'A', 'S', 'D', '空格'], pose: 'pointing-tablet',
-    say: '前面那座大房子就是家。开过去，按空格停稳。',
+    say: '把大车停在正门坡道外的光圈附近，按空格停稳；再下车走进家。',
     target: w => w.spots.homePark,
     done: w => w.mode === 'carrier' && near(w.carrier, w.spots.homePark, 10) && stopped(w) },
   { id: '1-5', title: '进家', icon: 'home', keys: ['F'], pose: 'walking-pointing',
